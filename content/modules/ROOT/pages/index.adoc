@@ -24,9 +24,55 @@ Before beginning this workshop, you should have:
 
 == Workshop Environment
 
+ifdef::user[]
+[NOTE]
+.Multi-User Workshop Mode
+====
+You are participating in a **multi-user workshop** where each student has their own dedicated Single Node OpenShift (SNO) cluster.
+
+*Your Workshop Assignment:*
+
+* *User ID:* `{user}`
+* *Your SNO Cluster Namespace:* `{namespace}`
+* *Workshop GUID:* `{guid}`
+
+*What This Means:*
+
+* You have **complete cluster-admin access** to your SNO cluster
+* All exercises run on your isolated cluster - you won't interfere with other students
+* Your cluster resources: 8 vCPU, 16GB RAM, 120GB storage
+* Infrastructure labs (Module 4: node density, maxPods tuning) work with full permissions
+====
+endif::[]
+
+ifndef::user[]
+[NOTE]
+.Single-User Workshop Mode
+====
+You are using a **shared workshop environment** on the hub cluster.
+
+*Your Workshop Assignment:*
+
+* *Namespace:* `{namespace}`
+* *Workshop GUID:* `{guid}`
+
+*What This Means:*
+
+* You have namespace-scoped permissions
+* All exercises run within your dedicated namespace
+* Some infrastructure labs may have limited permissions (Module 4)
+====
+endif::[]
+
 Your lab environment includes:
 
+ifdef::user[]
+* *Your SNO Cluster*: Dedicated Single Node OpenShift cluster
+* *Hub Cluster*: `{cluster_domain}` (for RHACM and Grafana)
+endif::[]
+ifndef::user[]
 * *OpenShift Cluster*: `{cluster_domain}`
+endif::[]
 * *Namespace*: `{namespace}`
 * *GUID*: `{guid}`
 
@@ -45,6 +91,52 @@ Your lab environment includes:
 |Grafana Observability
 |{grafana_url}
 |===
+
+=== Verifying Your Environment
+
+Use the embedded terminal to verify your workshop environment is ready:
+
+[source,bash,subs="attributes+",role=execute]
+----
+# Check your current cluster context
+oc whoami --show-server
+
+# Verify your namespace access
+oc get pods -n {namespace}
+
+# Check cluster nodes
+oc get nodes
+----
+
+ifdef::user[]
+[TIP]
+.Multi-User Mode: Understanding Your SNO Cluster
+====
+In multi-user mode, you should see:
+
+* **One node** when running `oc get nodes` (Single Node OpenShift)
+* **Your dedicated namespace** `{namespace}` with workshop sample applications
+* **Cluster-admin permissions** - you can view all namespaces with `oc get projects`
+
+The terminal is pre-configured with your SNO cluster credentials. All `oc` commands execute on your dedicated cluster.
+
+**RHACM and Grafana** (accessed via Quick Access Links above) run on the **hub cluster** and provide unified observability across all student SNO clusters. When viewing Grafana dashboards in Module 5, you'll see metrics from multiple clusters - use the `cluster` label to filter to your SNO cluster.
+====
+endif::[]
+
+ifndef::user[]
+[TIP]
+.Single-User Mode: Hub Cluster Access
+====
+In single-user mode, you should see:
+
+* **Multiple nodes** when running `oc get nodes` (hub cluster workers)
+* **Your dedicated namespace** `{namespace}` with workshop sample applications
+* **Namespace-scoped permissions** - you can only access resources in your namespace
+
+The terminal is pre-configured with hub cluster credentials. All `oc` commands execute within the `{namespace}` namespace.
+====
+endif::[]
 
 == Workshop Agenda
 

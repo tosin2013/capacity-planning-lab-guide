@@ -263,22 +263,79 @@ You now forecast per-cluster, then aggregate at the hub level. Module 5 covers t
 
 In this hands-on lab, you'll modify the kubeletConfig to increase maxPods from 250 to 500, then observe the impact on node memory overhead and control plane performance during a mass-scheduling event.
 
+ifdef::user[]
+[IMPORTANT]
+.Multi-User Mode: Full Cluster-Admin Access
+====
+**You have complete cluster-admin permissions on your SNO cluster.**
+
+This means you can:
+
+* ✅ Create and modify MachineConfig resources
+* ✅ Apply KubeletConfig changes
+* ✅ View all namespaces and cluster-wide resources
+* ✅ Observe node reboots and infrastructure changes
+
+**Your SNO cluster has 1 node** (Single Node OpenShift architecture), so all infrastructure changes apply immediately. When you modify maxPods configuration, the node will:
+
+1. Apply the new kubelet settings
+2. Cordon and drain (if needed)
+3. Reboot to activate the configuration
+4. Rejoin the cluster
+
+**Expected downtime:** 3-5 minutes for configuration changes. Your workshop lab guide will remain accessible during node reboots.
+====
+endif::[]
+
+ifndef::user[]
+[NOTE]
+.Single-User Mode: Namespace-Scoped Permissions
+====
+**You have namespace-scoped permissions on the hub cluster.**
+
+Some operations in this lab require cluster-admin access:
+
+* ❌ MachineConfig creation (requires cluster-admin)
+* ❌ KubeletConfig modification (requires cluster-admin)
+* ✅ Viewing existing cluster configuration (read-only)
+
+**For learning purposes**, this module will demonstrate the commands and expected output. In a production environment or multi-user workshop with dedicated SNO clusters, you would have the necessary permissions to execute these changes.
+
+You can still complete the conceptual exercises and calculations. Skip hands-on steps that require cluster-admin permissions.
+====
+endif::[]
+
 === Part 1: Baseline - Check Current Density
 
 First, let's see the current maxPods setting:
 
 [source,bash,role=execute]
 ----
-oc get nodes -o json | jq -r '.items[] | select(.metadata.labels["node-role.kubernetes.io/worker"] == "") | "\(.metadata.name)\t\(.status.capacity.pods)"' | head -3
+oc get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.capacity.pods}{"\n"}{end}'
 ----
 
-.Sample Output
+ifndef::user[]
+.Sample Output (Multi-Node Cluster)
 [source,textinfo]
 ----
 ip-10-0-145-209.us-east-2.compute.internal	250
 ip-10-0-155-132.us-east-2.compute.internal	250
 ip-10-0-174-87.us-east-2.compute.internal	250
 ----
+endif::[]
+
+ifdef::user[]
+.Sample Output (SNO Cluster)
+[source,textinfo]
+----
+sno-user1-node.example.com	250
+----
+
+[NOTE]
+====
+Your SNO cluster has **1 node** that serves both control plane and worker roles. The maxPods limit of 250 applies to this single node.
+====
+endif::[]
 
 Now check how many pods are currently running per node:
 

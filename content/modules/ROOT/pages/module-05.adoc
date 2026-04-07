@@ -266,6 +266,47 @@ Once logged in, you'll see the default RHACM dashboards:
 * *ACM - Kubernetes / Compute Resources / Cluster*: CPU/Memory by cluster
 * *ACM - Kubernetes / Compute Resources / Namespace*: Resource usage by namespace
 
+ifdef::user[]
+[IMPORTANT]
+.Multi-User Mode: Unified Fleet Observability
+====
+**Grafana runs on the hub cluster and shows metrics from ALL student SNO clusters.**
+
+This is intentional! RHACM's multi-cluster observability is designed for fleet management, where you monitor dozens or hundreds of clusters from a single dashboard.
+
+*What You'll See:*
+
+* **Cluster dropdown** shows multiple clusters: `local-cluster` (hub) + all student SNO clusters (`sno-{guid}-user1`, `sno-{guid}-user2`, etc.)
+* **Metrics aggregation**: PromQL queries like `sum by (cluster)` show data from all clusters side-by-side
+* **Your cluster**: Look for `sno-{guid}-{user}` in the cluster dropdown to filter to your SNO cluster
+
+*Why This Is Valuable:*
+
+In production, platform teams manage multiple clusters (dev, staging, prod, region-specific) from a single RHACM hub. You're experiencing real fleet observability!
+
+*Filtering to Your Cluster:*
+
+When building dashboards, use the `cluster` label to filter:
+
+[source,promql]
+----
+# All clusters
+sum(rate(container_cpu_usage_seconds_total[5m])) by (cluster)
+
+# Your cluster only
+sum(rate(container_cpu_usage_seconds_total{cluster="sno-{guid}-{user}"}[5m]))
+----
+====
+endif::[]
+
+ifndef::user[]
+[NOTE]
+.Single-User Mode: Hub Cluster Only
+====
+In single-user mode, Grafana shows metrics from the hub cluster (`local-cluster`). All workshop workloads run in the `{namespace}` namespace on this cluster.
+====
+endif::[]
+
 [NOTE]
 ====
 *Facilitator Demo Opportunity*:
