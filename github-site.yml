@@ -1,0 +1,47 @@
+---
+site:
+  title: Strategic Capacity Planning & Forecasting for OpenShift at Scale
+  url: https://tosin2013.github.io/capacity-planning-lab-guide
+  start_page: modules::index.adoc
+
+content:
+  sources:
+    - url: .
+      start_path: content
+      # Override attributes for public GitHub Pages - use placeholders instead of real cluster info
+      branches: HEAD
+      edit_url: https://github.com/tosin2013/capacity-planning-lab-guide/edit/main/{path}
+
+ui:
+  bundle:
+    url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/v0.0.1/ui-bundle.zip
+    snapshot: true
+  supplemental_files:
+    - path: ./content/supplemental-ui
+    - path: ./content/lib
+    - path: .nojekyll
+    - path: ui.yml
+      contents: "static_files: [ .nojekyll ]"
+
+runtime:
+  cache_dir: ./.cache/antora
+
+asciidoc:
+  attributes:
+    # Public-safe placeholder attributes - DO NOT use real cluster URLs
+    lab_name: "Strategic Capacity Planning & Forecasting for OpenShift at Scale"
+    guid: "workshop-guid"
+    cluster_domain: "apps.example.openshiftapps.com"
+    openshift_console: "https://console-openshift-console.apps.example.openshiftapps.com"
+    rhacm_console: "https://multicloud-console.apps.example.openshiftapps.com"
+    grafana_url: "https://grafana-open-cluster-management-observability.apps.example.openshiftapps.com"
+    namespace: "capacity-workshop"
+    page-pagination: true
+
+antora:
+  extensions:
+    - require: ./content/lib/dev-mode.js
+      enabled: false
+
+output:
+  dir: ./www

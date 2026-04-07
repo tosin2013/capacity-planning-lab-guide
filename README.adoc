@@ -1,111 +1,169 @@
-NOTE: Use https://github.com/rhpds/showroom_template_nookbag instead
+= Strategic Capacity Planning & Forecasting for OpenShift at Scale
 
-=== Getting Started
+A full-day, highly interactive workshop designed to help platform engineering and development teams transition from reactive "firefighting" to predictive, data-driven capacity management using OpenShift and Red Hat Advanced Cluster Management (RHACM).
 
-This template is designed to be used as a base for your showroom lab guides.
+== Workshop Overview
 
-The content is built using Antora, a static site generator for creating documentation sites from AsciiDoc documents.
+This workshop teaches strategic capacity planning through 7 comprehensive modules covering:
 
-This git repo template was created to make it easy for you to start developing your lab instructions.
+* **Module 1**: The Planning Horizon & 90-Day Audit - Establish capacity baselines
+* **Module 2**: Mathematics of Forecasting - Pod Velocity Model and PromQL
+* **Module 3**: Developer Track - QoS classes, right-sizing, and HPA
+* **Module 4**: Infrastructure Track - Node density, etcd limits, split vs grow decisions
+* **Module 5**: Fleet Observability (RHACM) - Multi-cluster dashboards and metric allowlists
+* **Module 6**: Integration Challenge - Black Friday chaos game simulation
+* **Module 7**: Strategic Roadmapping - 12-month capacity planning and executive communication
 
-Features:
+**Duration**: 8 hours (full-day workshop)
 
-. 0% cruft
-. Red Hat Demo Platform UI Bundle default
-. Dev Mode extension that displays the asciidoc attributes you have to work with
-. Content is generated using Antora, a static site generator for creating documentation sites from AsciiDoc documents.
+**Target Audience**: Platform Engineers, SREs, Application Developers, Architects, FinOps practitioners
 
-== Getting Started
+== Accessing the Workshop
+
+**Public Documentation**: https://tosin2013.github.io/capacity-planning-lab-guide
+
+**For Instructors**: Deploy via AgnosticD workload `ocp4_workload_capacity_planning_workshop` on Red Hat Demo Platform (RHDP) to create a complete workshop environment with Showroom lab guide and pre-deployed sample applications.
+
+== Workshop Features
+
+* ✅ 3,030+ lines of comprehensive AsciiDoc content
+* ✅ 40+ executable bash/PromQL code blocks with sample outputs
+* ✅ 20+ decision points, warnings, tips, and facilitator notes
+* ✅ Hands-on labs with real OpenShift clusters
+* ✅ Progressive learning across 7 modules
+* ✅ Integration with Red Hat Demo Platform (RHDP) Showroom
+
+== Local Development
 
 === Using Containers (Recommended)
 
-In order to test and develop on your local machine, you can use a specially built container with Podman or Docker as follows.
+Test and develop the lab guide locally using Podman or Docker:
 
-. Create a git repo from this template
-.. Suggested naming: `showroom_<lab-name>`
-. Clone your new repo and `cd` into it
-. When you make changes to the content, all you need is to kill the container and run it again.
-+
 [source,sh]
 ----
 podman run --rm --name antora -v $PWD:/antora -p 8080:8080 -i -t ghcr.io/juliaaano/antora-viewer
 ----
 
-For SELinux environments, `:z` may need to be appended to the volume mount:
+For SELinux environments:
 
+[source,sh]
 ----
 podman run --rm --name antora -v $PWD:/antora:z -p 8080:8080 -i -t ghcr.io/juliaaano/antora-viewer
 ----
 
-Live-reload is not supported.
+Then open http://localhost:8080 in your browser.
 
-=== Using Local Files (Less Recommended)
-
-. Create a git repo from this template
-. Clone the repo and `cd` into it
-. Run ./utilities/lab-serve
-. Open http://localhost:8080 in your browser
-. Run ./utilities/lab-build to build your html
-
-To rebuild your html, run `./utilites/build`.
-
-== Editing Files
-
-Now you are ready to go!
-You can start editing the files in the `content/modules/ROOT/pages/` directory.
-
-Many modern editors such as Visual Studio Code offer live Asciidoc Preview extensions.
-
-=== Understanding the Basic Template Directory Structure
+=== Using Utilities (Alternative)
 
 [source,sh]
 ----
-./content/modules/ROOT/
-├── assets
-│   └── images                       # Images used in your content
-│       └── example-image.png
-├── examples                         # You can add downloadable assets here
-│   └── example-bash-script.sh       # e.g. an example bash script
-├── nav.adoc                         # Navigation for your lab
-├── pages                            # Your content goes here
-│   ├── index.adoc                   # First page of your lab, e.g. overview etc
-│   ├── module-01.adoc
-│   └── module-02.adoc               # Sample lab has 2 modules including index.adoc
-└── partials                         # You can add partials here, reusable content inserted inline into your modules
-    └── example_partial.adoc
+./utilities/lab-serve
 ----
 
-== Adding Additional Links
+Open http://localhost:8080 in your browser.
 
-You can add links to external content in the convenient "Links" drop-down on the upper-right of the Showroom Summit 2024 UI.
+To rebuild HTML:
+[source,sh]
+----
+./utilities/lab-build
+----
 
-../content/antora.yml
+== Editing Workshop Content
+
+Workshop content is located in `content/modules/ROOT/pages/`:
+
+[source,sh]
+----
+./content/modules/ROOT/pages/
+├── index.adoc           # Workshop introduction and overview
+├── module-01.adoc       # Module 1: The Planning Horizon
+├── module-02.adoc       # Module 2: Mathematics of Forecasting
+├── module-03.adoc       # Module 3: Developer Track
+├── module-04.adoc       # Module 4: Infrastructure Track
+├── module-05.adoc       # Module 5: Fleet Observability
+├── module-06.adoc       # Module 6: Integration Challenge
+└── module-07.adoc       # Module 7: Strategic Roadmapping
+----
+
+Many modern editors such as Visual Studio Code offer live AsciiDoc preview extensions.
+
+== Workshop Attributes
+
+The workshop uses Antora attributes for dynamic content substitution. When deploying via RHDP, these are automatically populated:
+
+* `{guid}` - Student's unique workshop instance identifier
+* `{cluster_domain}` - OpenShift cluster ingress domain
+* `{openshift_console}` - OpenShift web console URL
+* `{namespace}` - Student's workshop namespace
+* `{rhacm_console}` - RHACM console URL
+* `{grafana_url}` - Observability Grafana URL
+
+For local development or GitHub Pages, these use placeholder values.
+
+== Deployment Options
+
+=== Option 1: Red Hat Demo Platform (RHDP) - Full Workshop Environment
+
+Deploy the complete workshop with:
+- OpenShift cluster with sample applications
+- RHACM with observability enabled
+- Showroom lab guide
+- Pre-configured monitoring and dashboards
+
+See https://github.com/tosin2013/agnosticd-v2[AgnosticD workload] for deployment instructions.
+
+=== Option 2: GitHub Pages - Documentation Only
+
+The workshop documentation is automatically published to GitHub Pages at:
+https://tosin2013.github.io/capacity-planning-lab-guide
+
+This provides read-only access to the lab guide content without the hands-on environment.
+
+=== Option 3: Showroom Standalone
+
+Deploy just the Showroom lab guide to an existing OpenShift cluster:
+
 [source,yaml]
 ----
-asciidoc:
-  attributes:
-    page-links:
-    - url: https://redhat.com
-      text: Red Hat
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: showroom
+spec:
+  template:
+    spec:
+      initContainers:
+      - name: git-cloner
+        image: quay.io/rhpds/git-cloner:v1.1.2
+        env:
+        - name: GIT_REPO_URL
+          value: https://github.com/tosin2013/capacity-planning-lab-guide.git
+        - name: GIT_REPO_REF
+          value: main
+      # ... (see AgnosticD workload for complete configuration)
 ----
 
-image::.images/ui-links.png[]
+== Technology Stack
 
-== Dev Mode
+- **OpenShift Container Platform**: 4.14 - 4.19+
+- **Red Hat Advanced Cluster Management (RHACM)**: 2.14+
+- **Monitoring**: Prometheus, Thanos, Alertmanager, Grafana
+- **Documentation**: Antora 3.1, AsciiDoc
+- **Lab Environment**: Showroom (RHDP)
 
-As a convenience to developers, the Dev Mode Extention (disabled by default) displays the asciidoc attributes you have to work with while writing your lab instructions.
+== Contributing
 
-. Disable/Enable Dev Mode by changing `enabled: true` or `enabled: false`
-+
-.default-site.yml
-[source,yaml]
-----
-extensions:
-  - id: dev-mode
-    require: ./content/lib/dev-mode.js
-    enabled: false
-----
+This workshop is maintained for use with Red Hat Demo Platform. For issues or improvements:
 
-. Produces
-+
-image::.images/dev-mode.png[]
+1. Fork the repository
+2. Create a feature branch
+3. Test changes locally using the container method above
+4. Submit a pull request
+
+== License
+
+Copyright © 2026 Red Hat, Inc.
+
+== Credits
+
+Originally developed for Red Hat Demo Platform workshops on OpenShift capacity planning and fleet management.

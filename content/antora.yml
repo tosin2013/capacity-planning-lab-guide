@@ -5,6 +5,9 @@ nav:
   - modules/ROOT/nav.adoc
 
 asciidoc:
+  # NOTE: The attributes below contain cluster-specific values used by Showroom
+  # deployments via RHDP. For public GitHub Pages, these are overridden in
+  # github-site.yml with placeholder values to avoid exposing cluster URLs.
   attributes:
     lab_name: "Strategic Capacity Planning & Forecasting for OpenShift at Scale"
     release-version: master
