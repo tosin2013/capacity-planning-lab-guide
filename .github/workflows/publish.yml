@@ -36,7 +36,7 @@ jobs:
                                                                                                                                                                                                                                           
       - name: Generate site                                                                                                                                                                                                              
         run: |                                                                                                                                                                                                                           
-          antora --fetch default-site.yml                 
+          antora --fetch github-site.yml             
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
