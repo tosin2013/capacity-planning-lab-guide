@@ -1,7 +1,7 @@
 ---
 site:
-  title: Showroom Template Demo
-  url: https://redhat-scholars.github.io/course-template
+  title: Strategic Capacity Planning & Forecasting for OpenShift at Scale
+  url: https://tosin2013.github.io/capacity-planning-lab-guide
   start_page: modules::index.adoc
 
 content:
