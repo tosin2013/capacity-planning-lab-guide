@@ -1,149 +1,294 @@
-= Building an Application with rpms
+= Module 1: The Planning Horizon & Baselines
 
-== Downloading the UBI
+_Duration: 60 minutes_
 
-In this lab, you will be installing software into the container 
-image running as an interactive application. To do this you will
-need `yum`, but do not need `systemd` for managing services within the
-container environment.  For that reason, you will be using the *Standard*
-UBI image (as opposed to the Minimal or Multi-service images).
+[#objectives]
+== Learning Objectives
 
-Using the "buildah from" command will download and meld the container image. This particular image we are using is the Red Hat Universal Base Image or UBI. From the ourput of the command, you will notice that we are pulling down the latest one, which is for RHEL 9. 
+By the end of this module, you will be able to:
 
-. Execute the  download the Standard UBI
-image from Red Hat's registry.
+* Differentiate between Tactical (0-3 mo), Operational (3-12 mo), and Strategic (1-3 yr) planning
+* Audit a current OpenShift cluster to establish a capacity baseline
+* Identify the gap between allocated resources and actual consumption
+* Understand why capacity planning starts with "knowing where you are today"
 
-+
-[source,sh,role=execute]
+[#planning-types]
+== Understanding Planning Horizons
+
+Most teams fail at capacity planning because they don't know their current utilization versus allocation. Before you can forecast where you're going, you must establish where you are today.
+
+=== The Three Planning Horizons
+
+*Tactical Planning (0-3 months)*::
+Focus on immediate needs and firefighting. Questions like "Can we handle this deployment tomorrow?" or "Do we need to add nodes this week?"
+
+*Operational Planning (3-12 months)*::
+Quarterly resource allocation, budget cycles, and predictable growth patterns. This is where most platform teams operate.
+
+*Strategic Planning (1-3 years)*::
+Multi-year infrastructure investments, commitment purchases (Reserved Instances, Savings Plans), and architectural decisions.
+
+[TIP]
+====
+*The FinOps Lifecycle*
+
+Capacity planning maps directly to the FinOps framework:
+
+1. *Inform* - Establish baseline (this module)
+2. *Optimize* - Right-size workloads (Module 3)
+3. *Operate* - Build dashboards & forecasts (Modules 2 & 5)
+====
+
+=== The Cost of Ignorance
+
+Consider this real-world scenario:
+
+* A team requests CPU/Memory for 1000 pods
+* Kubernetes reserves that capacity on nodes
+* Actual CPU usage is only 20% of requested
+* *Result*: 80% of infrastructure spend is wasted on unused capacity
+
+[IMPORTANT]
+====
+The gap between "Allocated" (what developers asked for) and "Consumed" (what hardware actually uses) is where millions of dollars in cloud spend disappear.
+====
+
+[#lab1]
+== Lab 1: The 90-Day Audit
+
+In this hands-on lab, you will audit the capacity baseline of your OpenShift cluster, comparing requested resources versus actual usage.
+
+=== Step 1: Check Cluster Nodes
+
+First, let's see what nodes are available in the cluster:
+
+[source,bash,role=execute]
 ----
-buildah from registry.access.redhat.com/ubi9/ubi
-----
-
-[#repositories]
-== Installing Repositories
-In this lab, you are going to containerize a software package that is already
-packaged in RPM format and stored in the Extra Packages for Enterprise Linux
-(EPEL) repository.
-
-Software often has requirements for prerequisite software that must be installed
-on the machine for it to work properly.  `yum` will resolve those
-dependencies for you, as long as it can locate the required packages in
-repositories defined on the machine.  The Red Hat Universal Base Image (UBI)
-downloaded in the previous step has access to some Red Hat Enterprise Linux
-repositories.  However, the target package for the lab is from EPEL.  
-
-. In the command below, `buildah` is going to run a command on the
-`ubi-working-container` image.  The `--` indicates that the command should be
-executed from within the container, which means the results will be applied into
-the container image.  Lastly, you are providing the `yum` command to install a
-package that defines all of the repositories from EPEL, `epel-release-latest-9`.
-
-+
-[source,bash]
-----
-buildah run ubi-working-container -- yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-----
-
-
-. You can verify that the above command did not install the RPM on the host system.
-
-+
-[source,bash]
-----
-rpm -q epel-release
-----
-
-NOTE: If your repository configurations are not distributed as an RPM, but instead as
-individual `.repo` files, you could use the `buildah copy` command to copy
-files from the host operating system into the container image.  You will see
-an example of using `buildah copy` later in this lab.
-
-[#software]
-== Installing Software
-
-
-. Now that the yum repositories are defined within the container, execute 
-another `yum install`, within the container, to install the target
-software: `moon-buggy`.
-
-+
-[source,bash]
-----
-buildah run ubi-working-container -- yum -y install moon-buggy
+oc get nodes
 ----
 
-
-== Committing the Container Image
-
-. At this point, the container is configured.  It is time to transition from a
-working container into a committed image.  In the command below, you will use
-the `buildah` command to commit the working container to an image called:
-`moon-buggy`.
-
-+
-[source,bash]
-----
-buildah commit ubi-working-container moon-buggy
-----
-
-+
-. The output of `podman image list` should confirm the image was created.
-
-+
-[source,bash]
-----
-podman image list
-----
-
-
-== Deploy the Container
-
-Now the software has been installed and a new container image created.  It is
-time to spawn a runtime of the container image and validate the software.  The
-software we are using is a command line command.  
-
-. When you `run` the container,
-it will be in interactive (`-it`) mode, based on the `moon-buggy` container
-image and the command run interactively will be `/usr/bin/moon-buggy`.
-
-+
-[source,bash]
-----
-podman run -it moon-buggy /usr/bin/moon-buggy
-----
-
-+
+.Sample Output
 [source,textinfo]
 ----
-
-<<< OUTPUT ABRIDGED >>>
-               MM     MM   OOOOO    OOOOO   NN     N
-               M M   M M  O     O  O     O  N N    N
-               M  M M  M  O     O  O     O  N  N   N
-               M   M   M  O     O  O     O  N   N  N
-               M       M  O     O  O     O  N    N N
-               M       M   OOOOO    OOOOO   N     NN
-
-                     BBBBBB   U     U   GGGGG    GGGGG   Y     Y
-                     B     B  U     U  G     G  G     G   Y   Y
-                     BBBBBB   U     U  G        G          Y Y
-                     B     B  U     U  G   GGG  G   GGG     Y
-                     B     B  U     U  G     G  G     G    Y
-                     BBBBBB    UUUUU    GGGGG    GGGGG   YY
-
-<<< OUTPUT ABRIDGED >>>
+NAME                                         STATUS   ROLES                  AGE   VERSION
+ip-10-0-128-107.us-east-2.compute.internal   Ready    control-plane,master   5d    v1.28.5+4bc5c35
+ip-10-0-145-209.us-east-2.compute.internal   Ready    worker                 5d    v1.28.5+4bc5c35
+ip-10-0-155-132.us-east-2.compute.internal   Ready    worker                 5d    v1.28.5+4bc5c35
+ip-10-0-174-87.us-east-2.compute.internal    Ready    worker                 5d    v1.28.5+4bc5c35
 ----
 
-. You can now play the Moon Buggy game, which is a text-based version of the
-popular Moon Patrol.  When you are finished, use the `q` command to quit the
-game, which will terminate the container.
+=== Step 2: Compare Allocation vs. Consumption
 
-+
-Alternatively, you can use `podman` to kill the running container from
-*Terminal 2*.
+Now let's compare what's *requested* (allocated) versus what's actually *consumed*:
 
-+
-[source,bash]
+[source,bash,role=execute]
 ----
-podman kill $(podman ps | grep -v CONTAINER | cut -f1 -d" " )
+oc adm top nodes
 ----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                                         CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+ip-10-0-145-209.us-east-2.compute.internal   423m         5%     4201Mi          13%
+ip-10-0-155-132.us-east-2.compute.internal   891m         11%    5932Mi          19%
+ip-10-0-174-87.us-east-2.compute.internal    512m         6%     3845Mi          12%
+----
+
+[NOTE]
+====
+*What does this tell us?*
+
+* Worker nodes are consuming 5-11% CPU
+* Memory utilization is 12-19%
+* These nodes likely have much higher *requests* than actual *usage*
+====
+
+=== Step 3: Examine Node Allocatable Capacity
+
+Let's dive deeper into a single worker node to see allocatable capacity:
+
+[source,bash,role=execute]
+----
+oc describe node -l node-role.kubernetes.io/worker | grep -A 10 "Allocated resources"
+----
+
+.Sample Output
+[source,textinfo]
+----
+Allocated resources:
+  (Total limits may be over 100 percent, i.e., overcommitted.)
+  Resource           Requests      Limits
+  --------           --------      ------
+  cpu                3420m (42%)   0 (0%)
+  memory             8192Mi (26%)  0 (0%)
+  ephemeral-storage  0 (0%)        0 (0%)
+----
+
+[IMPORTANT]
+====
+*Key Finding*: This node has *42% CPU requested* but is only *consuming 11%*.
+
+This means:
+
+* 31% of CPU capacity is reserved but unused
+* The scheduler can't use this capacity for new pods
+* You're paying for hardware that sits idle
+====
+
+=== Step 4: Identify High-Variance Namespaces
+
+Let's find which namespaces have the largest gap between requests and actual usage:
+
+[source,bash,role=execute]
+----
+oc get pods -A -o json | jq -r '
+  .items[] |
+  select(.spec.containers[].resources.requests != null) |
+  "\(.metadata.namespace)\t\(.metadata.name)"
+' | sort | uniq -c | sort -rn | head -10
+----
+
+Now let's check the `{namespace}` namespace specifically:
+
+[source,bash,role=execute]
+----
+oc adm top pods -n {namespace}
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                              CPU(cores)   MEMORY(bytes)
+besteffort-app-5598f76d5b-9jtz4   1m           12Mi
+burstable-app-9b598b884-m2h5w     2m           24Mi
+critical-app-6c4456cfc5-bj4zs     15m          48Mi
+critical-app-6c4456cfc5-ln9pp     14m          47Mi
+guaranteed-app-bc4d9685d-jpbhm    50m          128Mi
+load-generator-67567c576-hdvkj    102m         64Mi
+----
+
+Now compare this to what was *requested*:
+
+[source,bash,role=execute]
+----
+oc get pods -n {namespace} -o json | jq -r '
+  .items[] |
+  "\(.metadata.name)\t\(.spec.containers[0].resources.requests.cpu // "none")\t\(.spec.containers[0].resources.requests.memory // "none")"
+' | column -t
+----
+
+.Sample Output
+[source,textinfo]
+----
+besteffort-app-5598f76d5b-9jtz4    none    none
+burstable-app-9b598b884-m2h5w      100m    128Mi
+critical-app-6c4456cfc5-bj4zs      200m    256Mi
+critical-app-6c4456cfc5-ln9pp      200m    256Mi
+guaranteed-app-bc4d9685d-jpbhm     200m    256Mi
+load-generator-67567c576-hdvkj     100m    128Mi
+----
+
+[WARNING]
+====
+*Analysis*:
+
+* `critical-app` requested 200m CPU but uses only 15m (~7.5% utilization)
+* `burstable-app` requested 100m CPU but uses only 2m (~2% utilization)
+* `besteffort-app` has NO requests - dangerous! (We'll fix this in Module 3)
+
+*Financial Impact*: If this pattern exists across 100 namespaces, you're wasting 85-90% of your infrastructure budget.
+====
+
+=== Step 5: Calculate Cluster-Wide Waste
+
+Let's quantify the total waste across the cluster:
+
+[source,bash,role=execute]
+----
+echo "=== Cluster-Wide Capacity Summary ==="
+echo ""
+echo "Total Allocatable CPU (all workers):"
+oc get nodes -l node-role.kubernetes.io/worker -o json | \
+  jq -r '[.items[].status.allocatable.cpu | gsub("m";"") | tonumber] | add / 1000' | \
+  xargs printf "%.2f cores\n"
+
+echo ""
+echo "Total Requested CPU:"
+oc get pods -A -o json | \
+  jq -r '[.items[].spec.containers[].resources.requests.cpu // "0" | gsub("m";"") | tonumber] | add / 1000' | \
+  xargs printf "%.2f cores\n"
+
+echo ""
+echo "Total Consumed CPU (current):"
+oc adm top nodes --no-headers | awk '{sum+=$2} END {print sum/1000 " cores"}'
+----
+
+.Sample Output
+[source,textinfo]
+----
+=== Cluster-Wide Capacity Summary ===
+
+Total Allocatable CPU (all workers):
+24.00 cores
+
+Total Requested CPU:
+10.50 cores (43.75% of allocatable)
+
+Total Consumed CPU (current):
+1.83 cores (7.6% of allocatable)
+----
+
+[CAUTION]
+====
+*The Baseline Verdict*:
+
+* 43.75% of cluster capacity is *reserved* by requests
+* Only 7.6% is *actually being used*
+* 36% of capacity is "zombie allocation" - reserved but never consumed
+
+*If this cluster costs $50,000/month*, you're wasting approximately *$18,000/month* on unused reservations.
+====
+
+== Lab 1 Summary: Your Baseline
+
+You've now completed the 90-Day Audit. You should have discovered:
+
+✅ Total allocatable cluster capacity
+✅ Percentage of capacity requested by workloads
+✅ Percentage of capacity actually consumed
+✅ Gap between requests and usage (the "waste zone")
+✅ Namespaces with the highest variance
+
+[TIP]
+====
+*Facilitator Note*:
+
+This is the moment to address developer friction. Developers often see resource requests as "bureaucratic overhead" or feel pressured to over-request "just in case."
+
+Emphasize: *Accurate requests are not a restriction - they're a contract with the scheduler*. Without them, the scheduler is blind, leading to:
+
+* Pod evictions under pressure
+* Noisy neighbor problems
+* Unpredictable performance
+
+We'll prove this in Module 3.
+====
+
+== Key Takeaways
+
+* *Planning starts with baselining* - You can't forecast if you don't know your current state
+* *The gap between allocated and consumed resources is where money disappears*
+* *Tactical, Operational, and Strategic planning require different time horizons*
+* *Most infrastructure waste comes from inaccurate resource requests, not infrastructure overhead*
+
+== Next Steps
+
+In xref:module-02.adoc[Module 2: Mathematics of Forecasting], we'll take this baseline and build predictive models using Pod Velocity and PromQL to forecast future capacity needs.
+
+[NOTE]
+====
+*Pre-Module 2 Homework* (Optional):
+
+If you have access to your own production clusters, run the same audit commands and bring your findings to Module 2. We'll use real data to build your forecasting model.
+====

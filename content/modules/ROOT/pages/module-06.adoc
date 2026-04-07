@@ -1,0 +1,938 @@
+= Module 6: The Integration Challenge - Black Friday Chaos Game
+
+_Duration: 60 minutes_
+
+[#objectives]
+== Learning Objectives
+
+By the end of this module, you will be able to:
+
+* Apply capacity planning skills under simulated production pressure
+* Make real-time decisions about scaling, throttling, and resource allocation during an incident
+* Use RHACM Observability dashboards to diagnose multi-cluster capacity issues
+* Understand emergency capacity governance trade-offs (cost vs availability)
+* Experience the consequences of poor capacity planning in a safe environment
+
+[#scenario]
+== The Scenario: Black Friday + AWS Outage
+
+*Date*: Black Friday (the biggest shopping day of the year)
+*Time*: 11:45 AM EST
+*Your Role*: Platform Engineering On-Call Lead
+
+*Situation*:
+
+Your company runs a multi-tenant e-commerce platform on OpenShift across 3 AWS regions (us-east-1, us-west-2, eu-west-1). Normal daily traffic is 10,000 requests/second. Black Friday traffic typically spikes to 100,000 requests/second.
+
+*11:50 AM*: Traffic starts ramping up. HPAs are scaling pods as expected.
+
+*11:58 AM*: AWS reports "degraded performance" in us-east-1 (your primary region). Two availability zones are experiencing network issues.
+
+*12:00 PM*: 30% of your worker nodes in us-east-1 become unreachable. Pods are evicting. Traffic is failing over to us-west-2, which is now overloaded.
+
+*Your Mission*:
+
+Keep the platform online for the next 60 minutes using the capacity planning skills from Modules 1-5. Every decision has trade-offs:
+
+* Scale up → costs spike, but customers stay happy
+* Throttle traffic → save money, but lose sales
+* Fail over to another region → avoids outage, but that region might also overload
+* Emergency node addition → takes 15 minutes, might be too late
+
+[IMPORTANT]
+====
+*Game Rules*:
+
+1. *This is a simulation* - we're using pre-deployed workloads and scripts to mimic the scenario
+2. *You have limited "budget"* - every node you add costs $200/hour (simulated)
+3. *Success criteria*:
+   - Keep >95% request success rate for 60 minutes
+   - Spend <$5,000 in emergency capacity
+   - No customer-facing service goes down completely
+4. *You'll work in teams* - platform team vs application team perspectives
+5. *Facilitator will inject chaos* - node failures, traffic spikes, etcd pressure
+====
+
+[#lab6]
+== Lab 6: Black Friday Simulation
+
+=== Pre-Simulation Setup
+
+Before we start the chaos, let's establish baseline metrics.
+
+==== Step 1: Check Current Cluster State
+
+[source,bash,role=execute]
+----
+oc get nodes -l node-role.kubernetes.io/worker
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                                         STATUS   ROLES    AGE   VERSION
+ip-10-0-145-209.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
+ip-10-0-155-132.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
+ip-10-0-174-87.us-east-2.compute.internal    Ready    worker   5d    v1.28.5+4bc5c35
+----
+
+Record the baseline:
+* Worker nodes: 3
+* Status: All Ready
+
+==== Step 2: Check Application Deployment State
+
+[source,bash,role=execute]
+----
+oc get deployment -n {namespace} critical-app
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME           READY   UP-TO-DATE   AVAILABLE   AGE
+critical-app   2/2     2            2           5d
+----
+
+Baseline:
+* Replicas: 2
+* All available
+
+==== Step 3: Check HPA Configuration
+
+[source,bash,role=execute]
+----
+oc get hpa -n {namespace}
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME             REFERENCE                   TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+load-generator   Deployment/load-generator   32%/75%   1         5         1          2d
+----
+
+Baseline:
+* Current utilization: 32%
+* HPA will scale at 75%
+
+==== Step 4: Check Current Resource Allocation
+
+[source,bash,role=execute]
+----
+oc describe node -l node-role.kubernetes.io/worker | grep -A 5 "Allocated resources"
+----
+
+.Sample Output
+[source,textinfo]
+----
+Allocated resources:
+  Resource           Requests      Limits
+  cpu                3420m (42%)   0 (0%)
+  memory             8192Mi (26%)  0 (0%)
+----
+
+Baseline:
+* CPU allocated: 42%
+* Memory allocated: 26%
+* Available capacity: 58% CPU, 74% memory
+
+==== Step 5: Open the RHACM Observability Dashboard
+
+Open the Multi-Cluster Capacity Planning dashboard you created in Module 5:
+
+[source,bash,role=execute]
+----
+echo "RHACM Grafana: {grafana_url}"
+----
+
+Navigate to:
+* Dashboards → Multi-Cluster Capacity Planning
+
+Keep this open in a separate browser window - you'll need it during the simulation.
+
+=== Wave 1: The Traffic Spike (T+0 to T+15 minutes)
+
+[IMPORTANT]
+====
+*Facilitator Action*:
+
+The facilitator will now run the traffic generator script to simulate Black Friday load:
+
+```bash
+# Facilitator runs this (students observe)
+oc scale deployment load-generator -n capacity-workshop --replicas=5
+oc set env deployment/critical-app -n capacity-workshop TARGET_RPS=1000
+```
+
+*Expected Effect*:
+* Traffic increases 10× in 30 seconds
+* HPAs start scaling pods
+* CPU requests increase
+* Some pods may be Pending if there's insufficient capacity
+====
+
+==== Your Actions: Monitor and Respond
+
+Watch the HPA respond to load:
+
+[source,bash,role=execute]
+----
+watch -n 5 'oc get hpa -n {namespace} && echo "" && oc get deployment critical-app -n {namespace}'
+----
+
+.Sample Output (after 2 minutes)
+[source,textinfo]
+----
+NAME             REFERENCE                   TARGETS    MINPODS   MAXPODS   REPLICAS   AGE
+load-generator   Deployment/load-generator   142%/75%   1         5         5          2d
+
+NAME           READY   UP-TO-DATE   AVAILABLE   AGE
+critical-app   3/5     5            3           5d
+----
+
+[WARNING]
+====
+*Problem Detected*:
+
+* HPA scaled to 5 replicas (max)
+* Only 3/5 are READY
+* 2 pods are stuck Pending
+
+*Why?* Not enough CPU capacity on nodes to schedule the new pods.
+====
+
+Check for Pending pods:
+
+[source,bash,role=execute]
+----
+oc get pods -n {namespace} --field-selector=status.phase=Pending
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                            READY   STATUS    RESTARTS   AGE
+critical-app-6c4456cfc5-xk9p2   0/1     Pending   0          45s
+critical-app-6c4456cfc5-zm4t7   0/1     Pending   0          45s
+----
+
+Check why they're pending:
+
+[source,bash,role=execute]
+----
+oc describe pod -n {namespace} critical-app-6c4456cfc5-xk9p2 | grep -A 10 "Events:"
+----
+
+.Sample Output
+[source,textinfo]
+----
+Events:
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  FailedScheduling  30s   default-scheduler  0/3 nodes are available: 3 Insufficient cpu.
+----
+
+[IMPORTANT]
+====
+*Decision Point #1*:
+
+You have 4 options:
+
+*Option A*: Add more worker nodes (cost: $200/hour per node, 15-minute delay)
+*Option B*: Reduce HPA max replicas (risk: traffic spike might overwhelm remaining pods)
+*Option C*: Lower CPU requests for critical-app (risk: CPU throttling, Module 3 problem)
+*Option D*: Evict lower-priority pods to free capacity (risk: break dev/test workloads)
+
+*Team Discussion* (5 minutes): What would you do and why?
+
+*Facilitator*: Poll the room. Typical answers:
+- Platform team → "Add nodes" (safest, but expensive)
+- App team → "Lower requests" (fastest, but risks performance)
+- FinOps team → "Evict lower-priority" (cost-conscious)
+====
+
+==== Recommended Action: Add Worker Nodes
+
+For this simulation, let's choose Option A (add nodes):
+
+[source,bash,role=execute]
+----
+# In a real AWS environment, you'd use:
+# oc scale machineset <machineset-name> -n openshift-machine-api --replicas=5
+
+# For this workshop simulation:
+echo "Simulating: Adding 2 new worker nodes (would take 15 minutes in production)"
+echo "Cost impact: 2 nodes × $200/hour = $400/hour"
+echo "Running cost for 1-hour incident: $400"
+----
+
+[NOTE]
+====
+*In a real production environment*:
+
+You'd scale the MachineSet:
+
+```bash
+# Find the MachineSet
+oc get machineset -n openshift-machine-api
+
+# Scale it
+oc scale machineset <name> -n openshift-machine-api --replicas=5
+```
+
+This would:
+1. Request 2 new EC2 instances from AWS (~5 minutes)
+2. Bootstrap them as OpenShift nodes (~5 minutes)
+3. Join the cluster and become Ready (~5 minutes)
+4. Total: ~15 minutes from request to schedulable
+
+*For the simulation*, we're skipping this delay to keep the exercise moving.
+====
+
+Simulate the nodes joining:
+
+[source,bash,role=execute]
+----
+# The facilitator has pre-scaled the cluster with additional nodes
+# They will uncordon them now to simulate "new nodes joining"
+
+# Watch for node count to increase
+watch -n 5 'oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l'
+----
+
+Once nodes are available, the Pending pods should schedule:
+
+[source,bash,role=execute]
+----
+oc get pods -n {namespace} -l app=critical-app
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                            READY   STATUS    RESTARTS   AGE
+critical-app-6c4456cfc5-bj4zs   1/1     Running   0          5d
+critical-app-6c4456cfc5-ln9pp   1/1     Running   0          5d
+critical-app-6c4456cfc5-xk9p2   1/1     Running   0          3m  ← Previously Pending
+critical-app-6c4456cfc5-zm4t7   1/1     Running   0          3m  ← Previously Pending
+critical-app-6c4456cfc5-p9k3l   1/1     Running   0          1m  ← New replica
+----
+
+[TIP]
+====
+*Metrics to Monitor*:
+
+In your RHACM Grafana dashboard, you should see:
+
+* Panel "Total Pods by Cluster" → increased from ~50 to ~80
+* Panel "CPU: Requested vs Used" → spike in requests, usage following
+* Panel "Capacity Runway" → dropped from 120 days to 45 days (temporary)
+
+*This is the value of Module 5's observability!* Without it, you'd be flying blind.
+====
+
+=== Wave 2: The Node Failures (T+15 to T+30 minutes)
+
+[IMPORTANT]
+====
+*Facilitator Action*:
+
+Simulate the AWS availability zone failure:
+
+```bash
+# Cordon 30% of worker nodes (simulate unreachable nodes)
+TOTAL_NODES=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l)
+CORDON_COUNT=$(echo "$TOTAL_NODES * 0.3 / 1" | bc)  # 30% rounded down
+
+oc get nodes -l node-role.kubernetes.io/worker -o name | head -n $CORDON_COUNT | xargs -I {} oc adm cordon {}
+
+# Wait 30 seconds, then drain them (simulate node shutdown)
+sleep 30
+oc get nodes -l node-role.kubernetes.io/worker -o name | head -n $CORDON_COUNT | xargs -I {} oc adm drain {} --ignore-daemonsets --delete-emptydir-data --force --grace-period=30
+```
+
+*Expected Effect*:
+* 30% of nodes become SchedulingDisabled
+* Pods on those nodes evict and reschedule
+* Remaining nodes experience CPU/memory pressure
+* Some pods may CrashLoopBackOff if they can't get resources
+====
+
+==== Your Actions: Triage the Outage
+
+Check node status:
+
+[source,bash,role=execute]
+----
+oc get nodes -l node-role.kubernetes.io/worker
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                                         STATUS                     ROLES    AGE   VERSION
+ip-10-0-145-209.us-east-2.compute.internal   Ready,SchedulingDisabled   worker   5d    v1.28.5+4bc5c35
+ip-10-0-155-132.us-east-2.compute.internal   Ready                      worker   5d    v1.28.5+4bc5c35
+ip-10-0-174-87.us-east-2.compute.internal   Ready                      worker   5d    v1.28.5+4bc5c35
+ip-10-0-180-92.us-east-2.compute.internal   Ready                      worker   20m   v1.28.5+4bc5c35
+ip-10-0-191-45.us-east-2.compute.internal   Ready                      worker   20m   v1.28.5+4bc5c35
+----
+
+[WARNING]
+====
+*Analysis*:
+
+* 1 node is cordoned (SchedulingDisabled)
+* 4 nodes still Ready
+* Pods from the cordoned node are rescheduling
+
+*In a real multi-AZ outage*, you might see:
+* 30-50% of nodes unreachable (not responding to API)
+* Pods stuck in "Terminating" state (kubelet can't confirm shutdown)
+* etcd losing quorum if control plane nodes are affected
+====
+
+Check pod distribution:
+
+[source,bash,role=execute]
+----
+oc get pods -n {namespace} -o wide | awk '{print $7}' | sort | uniq -c
+----
+
+.Sample Output
+[source,textinfo]
+----
+      1 NODE
+     18 ip-10-0-155-132.us-east-2.compute.internal
+     15 ip-10-0-174-87.us-east-2.compute.internal
+     12 ip-10-0-180-92.us-east-2.compute.internal
+     10 ip-10-0-191-45.us-east-2.compute.internal
+----
+
+[NOTE]
+====
+*Pod Rebalancing*:
+
+After a node drain, pods don't automatically rebalance. You'll see:
+* Some nodes with 18 pods
+* Some nodes with 10 pods
+
+*This is normal.* Kubernetes scheduler only runs when pods are created/rescheduled, not continuously.
+
+*Should you manually rebalance?* Usually no - it causes unnecessary churn. Only rebalance if:
+* Imbalance is extreme (>2× difference)
+* You're hitting maxPods limits on some nodes
+* Performance is visibly degraded
+====
+
+Check for pod evictions:
+
+[source,bash,role=execute]
+----
+oc get events -n {namespace} --sort-by='.lastTimestamp' | grep -i evict | tail -10
+----
+
+.Sample Output
+[source,textinfo]
+----
+4m    Normal   EvictedByDrain   pod/critical-app-6c4456cfc5-bj4zs   Pod was evicted from node ip-10-0-145-209
+4m    Normal   EvictedByDrain   pod/load-generator-67567c576-hdvkj  Pod was evicted from node ip-10-0-145-209
+----
+
+[IMPORTANT]
+====
+*Decision Point #2*:
+
+Current state:
+* 1 node cordoned (20% capacity loss if you have 5 nodes)
+* All critical-app pods rescheduled successfully
+* Cluster is stable but running at higher utilization
+
+*Options*:
+
+*Option A*: Uncordon the node (assume AWS fixed the issue)
+*Option B*: Leave it cordoned and add more nodes (safest, but costs $200/hour)
+*Option C*: Wait and monitor (risk: if another node fails, you're in trouble)
+
+*Team Discussion* (3 minutes): What's your call?
+
+*Facilitator Guidance*:
+* In a real incident, you'd coordinate with AWS support
+* Typical recovery time for AZ issues: 30-120 minutes
+* Platform teams lean toward "leave it cordoned until AWS confirms recovery"
+* App teams want "uncordon ASAP to save money"
+====
+
+==== Recommended Action: Monitor and Wait
+
+Let's choose Option C (monitor) for this simulation:
+
+[source,bash,role=execute]
+----
+# Check cluster resource utilization
+oc adm top nodes -l node-role.kubernetes.io/worker
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                                         CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+ip-10-0-155-132.us-east-2.compute.internal   1891m        23%    9932Mi          33%
+ip-10-0-174-87.us-east-2.compute.internal    1512m        18%    7845Mi          26%
+ip-10-0-180-92.us-east-2.compute.internal    945m         11%    5201Mi          17%
+ip-10-0-191-45.us-east-2.compute.internal    823m         10%    4932Mi          16%
+----
+
+[TIP]
+====
+*Health Check*:
+
+* Highest CPU usage: 23% (healthy - far from throttling)
+* Highest memory usage: 33% (healthy)
+* No nodes approaching maxPods limits
+
+*Verdict*: Cluster can absorb the 20% capacity loss without immediate action.
+
+*Set up monitoring*:
+* Watch for CPU >70% (approaching throttling risk)
+* Watch for memory >80% (approaching eviction risk)
+* Alert if any pods go to CrashLoopBackOff
+====
+
+=== Wave 3: The etcd Pressure (T+30 to T+45 minutes)
+
+[IMPORTANT]
+====
+*Facilitator Narrative*:
+
+"It's now 12:30 PM. Traffic has stabilized at 8× normal levels. Your cluster is handling the load well. Then you notice something in the RHACM dashboard..."
+
+*Facilitator Action*:
+
+```bash
+# Simulate high event churn (creates etcd pressure)
+for i in {1..20}; do
+  oc create deployment etcd-pressure-$i --image=registry.access.redhat.com/ubi9/ubi-micro:latest -n capacity-workshop
+  oc scale deployment etcd-pressure-$i --replicas=0 -n capacity-workshop  # Creates events but no actual load
+done
+```
+
+*Expected Effect*:
+* etcd database size increases due to event churn
+* API response times degrade (500ms → 2000ms)
+* `oc` commands feel sluggish
+====
+
+==== Your Actions: Diagnose etcd Issues
+
+Check etcd metrics in Prometheus:
+
+[source,bash,role=execute]
+----
+# Get the Prometheus route
+oc get route -n openshift-monitoring prometheus-k8s -o jsonpath='{.spec.host}'
+----
+
+Open Prometheus and run:
+
+[source,promql]
+----
+etcd_mvcc_db_total_size_in_bytes / 1024 / 1024
+----
+
+.Sample Output
+[source,textinfo]
+----
+Value: 3842  (3.8GB - approaching the 4GB warning threshold from Module 4)
+----
+
+Check API response times:
+
+[source,bash,role=execute]
+----
+time oc get pods -A --no-headers | wc -l
+----
+
+.Sample Output
+[source,textinfo]
+----
+347
+
+real	0m2.145s   ← Degraded: 2145ms (baseline was 342ms in Module 4)
+----
+
+[WARNING]
+====
+*Problem Detected*:
+
+* etcd database: 3.8GB (approaching 8GB hard limit)
+* API response time: 6.3× slower than baseline
+* Cause: Event churn from pod scaling and node drains
+
+*If etcd hits 8GB*:
+* Cluster enters emergency mode
+* New pod creations fail intermittently
+* Control plane becomes unreliable
+
+*This is why Module 4 emphasized the 10,000 pod ceiling!*
+====
+
+Check event count:
+
+[source,bash,role=execute]
+----
+oc get events -A --no-headers | wc -l
+----
+
+.Sample Output
+[source,textinfo]
+----
+8247  (↑ from normal baseline of ~500)
+----
+
+[IMPORTANT]
+====
+*Decision Point #3*:
+
+You need to reduce etcd pressure immediately.
+
+*Options*:
+
+*Option A*: Manually prune old events (risky - might delete useful debug info)
+*Option B*: Delete the `etcd-pressure-*` deployments (safe - they're not customer-facing)
+*Option C*: Restart etcd to force compaction (very risky - causes brief control plane outage)
+*Option D*: Scale down non-critical workloads to reduce object churn
+
+*Team Discussion* (3 minutes): Which option?
+
+*Facilitator Guidance*:
+* Option B is the clear winner (clean up the junk)
+* Option A works but requires care (don't delete recent events from the actual incident)
+* Option C is a last resort (only if etcd >7GB and compaction isn't running automatically)
+* Option D is good hygiene but won't solve the immediate problem
+====
+
+==== Recommended Action: Clean Up Junk Deployments
+
+[source,bash,role=execute]
+----
+# Delete the etcd-pressure deployments
+oc delete deployment -n {namespace} -l app.kubernetes.io/name=etcd-pressure --all
+----
+
+Wait 30 seconds for event pruning to kick in, then check again:
+
+[source,bash,role=execute]
+----
+time oc get pods -A --no-headers | wc -l
+----
+
+.Sample Output
+[source,textinfo]
+----
+142
+
+real	0m0.612s   ← Improved: 612ms (still slower than baseline, but much better)
+----
+
+[TIP]
+====
+*Why API Response Improved*:
+
+* Deleted 20 deployments (20 fewer objects in etcd)
+* Event count dropped from 8247 → ~600
+* etcd compaction ran automatically (reclaimed space)
+
+*Monitor etcd size*:
+
+```promql
+etcd_mvcc_db_total_size_in_bytes / 1024 / 1024
+```
+
+Should drop from 3.8GB → ~2.5GB over the next 5 minutes as compaction completes.
+====
+
+=== Wave 4: The Recovery (T+45 to T+60 minutes)
+
+[IMPORTANT]
+====
+*Facilitator Narrative*:
+
+"It's now 12:45 PM. AWS has confirmed the availability zone issue is resolved. You can uncordon the nodes. Traffic is starting to decrease as the Black Friday rush subsides. Time to plan your scale-down strategy."
+====
+
+==== Your Actions: Scale Down Gracefully
+
+Uncordon the previously failed nodes:
+
+[source,bash,role=execute]
+----
+oc get nodes -l node-role.kubernetes.io/worker -o name | grep SchedulingDisabled | xargs -I {} oc adm uncordon {}
+----
+
+.Sample Output
+[source,textinfo]
+----
+node/ip-10-0-145-209.us-east-2.compute.internal uncordoned
+----
+
+Check that all nodes are Ready:
+
+[source,bash,role=execute]
+----
+oc get nodes -l node-role.kubernetes.io/worker
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                                         STATUS   ROLES    AGE   VERSION
+ip-10-0-145-209.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
+ip-10-0-155-132.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
+ip-10-0-174-87.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
+ip-10-0-180-92.us-east-2.compute.internal   Ready    worker   45m   v1.28.5+4bc5c35
+ip-10-0-191-45.us-east-2.compute.internal   Ready    worker   45m   v1.28.5+4bc5c35
+----
+
+Reduce traffic load (simulate traffic subsiding):
+
+[source,bash,role=execute]
+----
+# Facilitator runs this
+oc set env deployment/critical-app -n {namespace} TARGET_RPS=200
+oc scale deployment load-generator -n {namespace} --replicas=2
+----
+
+Watch HPA scale down:
+
+[source,bash,role=execute]
+----
+watch -n 10 'oc get hpa -n {namespace} && echo "" && oc get deployment critical-app -n {namespace}'
+----
+
+.Sample Output (after 5 minutes)
+[source,textinfo]
+----
+NAME             REFERENCE                   TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+load-generator   Deployment/load-generator   28%/75%   1         5         2          2d
+
+NAME           READY   UP-TO-DATE   AVAILABLE   AGE
+critical-app   2/2     2            2           5d
+----
+
+[NOTE]
+====
+*HPA Scale-Down Delay*:
+
+HPA waits 5 minutes by default before scaling down (configurable via `--horizontal-pod-autoscaler-downscale-stabilization-window`).
+
+*Why the delay?*
+* Prevents flapping (scale up/down/up/down)
+* Gives time to confirm traffic decrease is sustained
+* Reduces pod churn (which creates etcd events)
+
+*This is healthy behavior.* Don't manually scale down unless you're certain the spike is over.
+====
+
+[IMPORTANT]
+====
+*Decision Point #4*:
+
+You now have 5 worker nodes, but you only needed 3 before the incident.
+
+*Options*:
+
+*Option A*: Immediately scale down to 3 nodes (save $400/hour, but risky if traffic spikes again)
+*Option B*: Keep 4 nodes for 24 hours (hedge against aftershocks, costs $200/hour extra)
+*Option C*: Keep all 5 nodes for the weekend (safest, costs $400/hour extra for 48 hours = $19,200)
+
+*Team Discussion* (3 minutes): What's the right balance between cost and risk?
+
+*Facilitator Guidance*:
+* Platform teams typically choose Option B (keep 1 extra node for 24 hours)
+* FinOps teams push for Option A (scale down immediately)
+* Business stakeholders might demand Option C if Black Friday weekend historically has Saturday/Sunday spikes
+
+*Real-World Data*: Check your Pod Velocity model from Module 2 - does historical data show weekend spikes?
+====
+
+==== Recommended Action: Gradual Scale-Down
+
+[source,bash,role=execute]
+----
+# Best practice: Scale down 1 node at a time, wait 30 minutes, observe
+echo "Recommended: Scale MachineSet from 5 → 4 nodes now"
+echo "Wait 30 minutes and monitor"
+echo "If stable, scale 4 → 3 nodes in 1-2 hours"
+echo "Cost: $200 extra for ~2 hours = $400 total"
+----
+
+[TIP]
+====
+*Post-Incident Checklist*:
+
+Before declaring "all clear":
+
+✅ All nodes Ready
+✅ All deployments at desired replica count
+✅ No pods in CrashLoopBackOff or Pending
+✅ HPA targets within normal range (20-50%)
+✅ etcd database size <4GB
+✅ API response times back to baseline (<500ms)
+✅ No active alerts in Alertmanager
+
+*Run these checks*:
+
+```bash
+# Node health
+oc get nodes -l node-role.kubernetes.io/worker
+
+# Pod health
+oc get pods -A --field-selector=status.phase!=Running
+
+# HPA status
+oc get hpa -A
+
+# etcd size
+# (check Prometheus: etcd_mvcc_db_total_size_in_bytes / 1024 / 1024)
+
+# API response time
+time oc get pods -A --no-headers | wc -l
+```
+====
+
+=== Simulation Debrief
+
+Congratulations! You survived the Black Friday + AWS outage simulation.
+
+==== Incident Timeline Summary
+
+[cols="1,2,3,2",options="header"]
+|===
+|Time |Event |Your Action |Cost Impact
+
+|T+0
+|Traffic spike (10×)
+|HPA scaled, 2 pods Pending
+|$0
+
+|T+5
+|Added 2 worker nodes
+|Pending pods scheduled
+|+$400/hour
+
+|T+15
+|30% node failure (AWS AZ outage)
+|Pods evicted and rescheduled
+|$0
+
+|T+30
+|etcd pressure (3.8GB)
+|Deleted junk deployments
+|$0
+
+|T+45
+|AWS recovered, uncordoned nodes
+|Monitored scale-down
+|$0
+
+|T+60
+|Traffic subsiding
+|HPA scaled down, kept 4 nodes
+|Continuing $200/hour
+|===
+
+==== Final Scorecard
+
+Calculate your costs:
+
+[source,text]
+----
+Emergency node additions: 2 nodes × $200/hour × 1 hour = $400
+Ongoing extra capacity: 1 node × $200/hour × 2 hours = $400
+──────────────────────────────────────────────────────────
+Total incident cost: $800
+Budget limit: $5,000
+──────────────────────────────────────────────────────────
+Result: ✅ UNDER BUDGET ($4,200 remaining)
+----
+
+Check success criteria:
+
+✅ Request success rate: >95% (no customer-facing outages)
+✅ Incident cost: $800 (<$5,000 limit)
+✅ No services completely down
+
+[IMPORTANT]
+====
+*What Made Success Possible*:
+
+1. *Module 1 baseline* - You knew normal capacity utilization (42% CPU), so you recognized when you had headroom vs when you needed nodes
+2. *Module 2 forecasting* - Pod Velocity model predicted you'd need 4-5 nodes for Black Friday traffic
+3. *Module 3 right-sizing* - Accurate resource requests meant HPA scaled correctly without over-provisioning
+4. *Module 4 density knowledge* - You understood maxPods limits and etcd constraints, avoiding the 8GB ceiling
+5. *Module 5 observability* - RHACM dashboard gave you real-time visibility into the incident
+
+*Without capacity planning*:
+* You'd have under-provisioned (outage)
+* Or over-provisioned by 10× (wasted $4,000+)
+* Or been flying blind during the incident
+====
+
+==== Lessons Learned Discussion
+
+[TIP]
+====
+*Facilitator: Lead a 10-minute discussion*
+
+Questions for the room:
+
+1. *What would you do differently next time?*
+   - Pre-provision extra capacity before Black Friday? (costs money for days, not just hours)
+   - Set up automated scaling based on traffic forecasts?
+   - Implement traffic shaping/throttling to protect the platform?
+
+2. *What surprised you about the incident?*
+   - How fast things escalated?
+   - etcd pressure from event churn (not just pod count)?
+   - API response time degradation?
+
+3. *How would this play out in your organization?*
+   - Who makes the decision to add nodes?
+   - What's your budget approval process for emergency capacity?
+   - Do you have runbooks for node failures?
+
+4. *What metrics would you add to the RHACM dashboard after this?*
+   - Event count over time?
+   - API response time (API server latency)?
+   - Cost per cluster in real-time?
+====
+
+== Key Takeaways
+
+* *Capacity incidents require real-time decision-making with incomplete information*
+* *Every decision has trade-offs: cost vs availability, speed vs safety*
+* *Observability (Module 5) is critical for diagnosing multi-cluster issues under pressure*
+* *Right-sizing (Module 3) prevents waste during scale-up events*
+* *etcd pressure is a hidden failure mode that doesn't show up in CPU/memory dashboards*
+* *Gradual scale-down is safer than immediate scale-down after an incident*
+
+== Next Steps
+
+In xref:module-07.adoc[Module 7: Strategic Roadmapping], you'll take the lessons from this simulation and build a 12-month capacity plan. You'll translate technical metrics (pod counts, node density, etcd limits) into executive-level recommendations with budget forecasts and risk assessments.
+
+This is the final module - where you go from "firefighting" to "strategic planning."
+
+[NOTE]
+====
+*Homework Before Module 7*:
+
+Think about these questions:
+
+1. What would a "Black Friday" equivalent look like in your organization? (product launch, tax season, end-of-quarter, etc.)
+2. How much would 1 hour of downtime during that event cost your business?
+3. What's your current budget for "emergency capacity" - do you even have one?
+
+Bring these answers to Module 7 - you'll need them for the strategic roadmap exercise.
+====

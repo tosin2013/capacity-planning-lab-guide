@@ -1,43 +1,126 @@
 = {lab_name}
 
-The `lab_name` var, known as an asciidoc attribute, above was set in `./content/antora.yml` and can be used to set the lab_name or title of your content.
-You are both free to change its value and if you prefer to use a different var name, you can change the value of `lab_name`, for example to `title` in `./content/antora.yml` and then reference it in your content as `\{title}`. +
+== Welcome to the Workshop
 
-image::rhel-logo-black.jpg[rhel-logo-black,55%,55%]
+Welcome to the *Strategic Capacity Planning & Forecasting Workshop*. This full-day, highly interactive session is designed to transition platform engineering and development teams from reactive "firefighting" to predictive, data-driven capacity management.
 
-== Variables
+Using OpenShift and Red Hat Advanced Cluster Management (RHACM), you will explore the financial impacts of node density, resolve the tension between developer resource requests and infrastructure safety buffers, and build centralized, multi-cluster capacity dashboards.
 
-Other vars can also be set there, such as `ssh_user` and `ssh_password`, and referenced inline in the lab content by using the `\{foo}` syntax.
+== Who Will Benefit Most?
 
-This is another var, or asciidoc attribute, from `./content/antora.yml` {my_var}
+*Platform Engineers & SREs*:: Learn fleet-wide forecasting, node density optimization, and how to build custom RHACM observability dashboards.
 
-== Writing your lab
+*Application Developers & Architects*:: Understand the Kubernetes scheduler, QoS classes, and why "accurate requests" are essential for stability rather than just administrative hurdles.
 
-Whatever type of content you are writing we'll refer to your *content* as "your lab" in this document.
+*FinOps & Product Owners*:: Gain visibility into cloud spend, chargeback modeling, and the financial impact of commitment strategies.
 
-=== Lab structure
+== Prerequisites
 
-Wether you are writing a lab
+Before beginning this workshop, you should have:
 
-* First, we will build a monolithic application already compiled as RPM packages and put it into a container. This will allow us to deploy the application, copy it between machines, and update it separately from the operating system. This process affords us a portable and easily maintained component instead of tightly coupling the application with your operating system maintenance.
+* Basic familiarity with the OpenShift/Kubernetes CLI (`oc` or `kubectl`)
+* Basic understanding of Prometheus (PromQL) and Grafana
+* Access to the Workshop Lab Environment (already provided)
 
-* In closing we will build a second container on a different operating system version that makes an application not packaged into RPMs. This will be similar to a web application deployment, positioning the correct files at the right locations. To do this, we will pull a project from GitHub and position the component files within our container image. The purpose of this is to achieve a portable application container that can deploy on several different versions of Red Hat Enterprise Linux. This also provides the benefit of decoupling your application maintenance, which would all happen by building new containers versus operating system maintenance. The container is no longer reliant on the operating system installed on the machine where the application is deployed.
+== Workshop Environment
 
-. Now let's examine this cluster a bit more by describing the cluster (the `$GUID` environment variable is already set for you so you can immediately describe your individual cluster):
-+
-[source,sh,role=execute]
-----
-podman ps
-----
-+
-.Sample Output
-[source,texinfo,subs="attributes"]
-----
-CONTAINER ID  IMAGE                        COMMAND           CREATED      STATUS      PORTS                 NAMES
-2dcfee9e50c4  docker.io/library/httpd:2.4  httpd-foreground  3 hours ago  Up 3 hours  0.0.0.0:8080->80/tcp  showroom-httpd
-----
+Your lab environment includes:
 
-=== Lab Access
+* *OpenShift Cluster*: `{cluster_domain}`
+* *Namespace*: `{namespace}`
+* *GUID*: `{guid}`
 
-The terminal window to your right is *already* logged into the lab environment as the `{ssh_user}` user via `ssh`. 
-All steps of this lab are to be completed as the `{ssh_user}` user.
+=== Quick Access Links
+
+[cols="2,3",options="header"]
+|===
+|Component |URL
+
+|OpenShift Console
+|{openshift_console}
+
+|RHACM Console
+|{rhacm_console}
+
+|Grafana Observability
+|{grafana_url}
+|===
+
+== Workshop Agenda
+
+[cols="1,3,2,1",options="header"]
+|===
+|Time |Section |Description |Type
+
+|09:00
+|xref:module-01.adoc[Module 1: The Planning Horizon]
+|Tactical vs. Strategic planning; assessing current state
+|Lecture/Lab
+
+|10:00
+|xref:module-02.adoc[Module 2: The Math of Forecasting]
+|Pod Velocity, PromQL, and ACM Forecasting Dashboards
+|Lecture/Lab
+
+|11:00
+|*Break*
+|
+|
+
+|11:15
+|xref:module-03.adoc[Module 3: Developer Track]
+|Sizing, QoS, and the danger of "Zero Requests"
+|Lab
+
+|12:45
+|*Lunch*
+|
+|
+
+|13:45
+|xref:module-04.adoc[Module 4: Infra Track]
+|Multi-cluster sizing, density, and etcd limits
+|Lab
+
+|15:15
+|xref:module-05.adoc[Module 5: Fleet Observability]
+|Custom multi-cluster Grafana capacity dashboards
+|Lab
+
+|16:15
+|*Break*
+|
+|
+
+|16:30
+|xref:module-06.adoc[Module 6: The Integration Challenge]
+|Live simulation: Product launch spike + AZ failure
+|Game/Lab
+
+|17:30
+|xref:module-07.adoc[Module 7: Strategic Roadmapping]
+|Building the 12-month capacity plan
+|Exercise
+
+|18:00
+|*Wrap-up*
+|
+|
+|===
+
+== Technology Stack
+
+This workshop uses:
+
+* *OpenShift Container Platform*: 4.14 - 4.19+
+* *Red Hat Advanced Cluster Management (RHACM)*: 2.14+
+* *Monitoring*: Prometheus, Thanos, Alertmanager, Grafana
+
+== Getting Started
+
+When you're ready, proceed to xref:module-01.adoc[Module 1: The Planning Horizon] to begin your capacity planning journey.
+
+[TIP]
+====
+The terminal on the right side of this page is already logged into your OpenShift cluster. You can start running commands immediately!
+====

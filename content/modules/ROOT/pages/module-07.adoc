@@ -1,0 +1,905 @@
+= Module 7: Strategic Roadmapping - The 12-Month Plan
+
+_Duration: 60 minutes_
+
+[#objectives]
+== Learning Objectives
+
+By the end of this module, you will be able to:
+
+* Translate technical capacity metrics into executive-level business language
+* Build a 12-month capacity roadmap with quarterly milestones
+* Forecast infrastructure budgets using Pod Velocity models (Module 2)
+* Recommend Reserved Instance (RI) or Savings Plan commitments with risk analysis
+* Present a 3-minute capacity plan pitch to leadership
+* Identify capacity-related risks and mitigation strategies
+
+[#executive-translation]
+== From Metrics to Strategy
+
+Throughout this workshop, you've worked with technical metrics:
+
+* Pod Velocity (deployments/month)
+* maxPods configuration (250 vs 500)
+* etcd database size (GB)
+* CPU request vs usage gaps (%)
+* HPA scaling patterns
+
+*Executives don't care about these details.* They care about:
+
+* *Cost*: "How much will infrastructure cost next year?"
+* *Risk*: "What happens if we under-provision? Over-provision?"
+* *Growth*: "Can we handle 2× customer growth in Q2?"
+* *Commitments*: "Should we buy Reserved Instances?"
+
+Your job as a platform engineer is to *translate capacity planning into strategic recommendations* that leadership can act on.
+
+=== The Translation Framework
+
+[cols="3,3,4",options="header"]
+|===
+|Technical Metric |Business Metric |Executive Question
+
+|*Pod Velocity: +50 services/quarter*
+|Growth Rate: 150% service count increase/year
+|"Can our platform scale with product roadmap?"
+
+|*Current: 42% CPU allocated, 12% used*
+|Waste: 30% unused capacity = $18K/month
+|"Where can we cut costs without risk?"
+
+|*etcd at 3.8GB, limit 8GB*
+|Cluster at 48% of maximum safe size
+|"When do we need to split the cluster?"
+
+|*HPA scaled to max during Black Friday*
+|Emergency capacity cost: $800/hour
+|"Should we pre-provision for peak events?"
+
+|*Average CPU request: 200m per pod*
+|Standard service footprint: 0.2 cores
+|"What's our unit economics (cost per service)?"
+|===
+
+[IMPORTANT]
+====
+*The Golden Rule of Executive Communication*:
+
+*Lead with the recommendation, then justify with data.*
+
+❌ Bad: "etcd is at 3.8GB and the limit is 8GB, so we're at 48% capacity, and based on Pod Velocity of 50 services/quarter..."
+
+✅ Good: "We need to plan a cluster split in Q3 2026 (cost: $15K). Here's why: [show data]"
+
+*Executives make decisions. Give them options, not information dumps.*
+====
+
+[#roadmap-template]
+== The 12-Month Strategic Roadmap Template
+
+A capacity roadmap answers five questions:
+
+1. *Where are we today?* (Module 1 baseline)
+2. *Where are we going?* (Module 2 forecasting)
+3. *What could go wrong?* (Risk analysis)
+4. *What actions do we take?* (Quarterly milestones)
+5. *What does it cost?* (Budget forecast)
+
+=== Part 1: Current State (Baseline)
+
+From Module 1, you should have:
+
+[source,text]
+----
+Baseline (as of April 2026):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Clusters:        3 (prod-east, prod-west, dev)
+Worker Nodes:    24 total (8 per prod cluster, 8 dev)
+Total Pods:      1,247
+CPU Allocated:   102 cores (42% of 243 allocatable)
+CPU Used:        18.3 cores (7.6% utilization)
+Waste:           83.7 cores unused (34% of allocatable)
+
+Monthly Cost:    $50,000 (all infrastructure)
+Cost per Core:   $50,000 / 243 = $206/core/month
+Waste Cost:      83.7 cores × $206 = $17,242/month
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+----
+
+[TIP]
+====
+*If you don't have exact numbers*:
+
+Use order-of-magnitude estimates:
+
+* "~1000 pods" instead of "1,247 pods"
+* "~$50K/month" instead of "$49,837/month"
+* "~30% waste" instead of "34.4% waste"
+
+*Precision creates false confidence.* Round to the nearest 10% for strategic planning.
+====
+
+=== Part 2: Growth Forecast (Pod Velocity Model)
+
+From Module 2, apply the Pod Velocity formula:
+
+[source,text]
+----
+Pod Velocity (30-day observation):
+- New deployments: +15 services in March 2026
+- Average replicas: 3 per service
+- Average CPU request: 200m per pod
+
+Quarterly Projection (Q2 2026):
+- New services: 15/month × 3 months = 45 services
+- New pods: 45 services × 3 replicas = 135 pods
+- New CPU demand: 135 pods × 0.2 cores = 27 cores
+
+Year-End Projection (Q2-Q4 2026):
+- 9 months × 15 services/month = 135 new services
+- 135 services × 3 replicas = 405 new pods
+- 405 pods × 0.2 cores = 81 cores
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Current:  102 cores allocated
+Year-End: 102 + 81 = 183 cores needed
+Growth:   +79% in 9 months
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+----
+
+[WARNING]
+====
+*Caveats in the Model*:
+
+This assumes:
+* Linear growth (no seasonal spikes)
+* No major product launches
+* Average service size remains 200m CPU
+
+*Adjust for known events*:
+
+* "We're launching new product in Q3 → add 50 extra cores for Q3"
+* "Black Friday in Q4 → add 100% buffer in November"
+* "Migration from legacy platform in Q2 → add 200 cores one-time"
+
+*Forecasting is not fortune-telling.* Build in scenario planning (best case, worst case, likely case).
+====
+
+=== Part 3: Quarterly Milestones
+
+Break the year into actionable quarters:
+
+[cols="1,2,2,2",options="header"]
+|===
+|Quarter |Key Actions |Capacity Additions |Cost Impact
+
+|*Q2 2026* (Apr-Jun)
+|- Right-size workloads (Module 3) +
+- Enable RHACM Observability (Module 5)
+|+0 nodes (optimization phase)
+|-$5,000/month (waste reduction)
+
+|*Q3 2026* (Jul-Sep)
+|- Add 4 worker nodes to prod-east +
+- Plan cluster split (etcd approaching 5GB)
+|+4 nodes (prod-east)
+|+$3,200/month (4 × $200/node × 4 clusters)
+
+|*Q4 2026* (Oct-Dec)
+|- Split prod-east into prod-east-1 and prod-east-2 +
+- Pre-provision for Black Friday (+8 temp nodes)
+|+12 nodes (split + Black Friday buffer)
+|+$6,000/month baseline +
++$12,800 one-time (Black Friday)
+
+|*Q1 2027* (Jan-Mar)
+|- Scale down Black Friday capacity +
+- Implement Cluster Autoscaler
+|+0 nodes (back to baseline)
+|+$0 (net neutral)
+|===
+
+[TIP]
+====
+*How to Build Milestones*:
+
+1. Start with *must-haves* (avoid outages)
+   - Add nodes before you hit 80% capacity
+   - Split clusters before etcd hits 6GB
+
+2. Add *optimizations* (reduce waste)
+   - Right-sizing workloads (Module 3)
+   - Implement autoscaling
+
+3. Include *enablers* (make future planning easier)
+   - Deploy observability (Module 5)
+   - Automate forecasting dashboards
+
+4. Flag *risks* (what could derail the plan)
+   - Product roadmap changes
+   - M&A activity (acquiring another company's workloads)
+   - Major customer churn (over-provisioned if customers leave)
+====
+
+=== Part 4: Budget Forecast
+
+Translate node additions into dollars:
+
+[source,text]
+----
+2026 Infrastructure Budget Forecast
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Baseline (Current):  $50,000/month × 12 = $600,000/year
+
+Additions by Quarter:
+Q2: -$5,000/month (optimization) × 3 months = -$15,000
+Q3: +$3,200/month (4 nodes)      × 3 months = +$9,600
+Q4: +$6,000/month (12 nodes)     × 3 months = +$18,000
+Q4: +$12,800 (Black Friday temporary capacity, 8 nodes × $200/hour × 8 hours)
+
+Subtotal: $600,000 - $15,000 + $9,600 + $18,000 + $12,800 = $625,400
+
+Contingency (10%): +$62,540
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total 2026 Budget:   $687,940
+Year-over-Year:      +14.7% vs 2025
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+----
+
+[IMPORTANT]
+====
+*Always Include Contingency*:
+
+10-20% buffer for:
+* Unexpected product launches
+* Higher-than-forecasted growth
+* Emergency capacity (Module 6 incidents)
+* Price increases from cloud provider
+
+*Under-budgeting is worse than over-budgeting.* If you ask for $600K and spend $700K, you've lost credibility. If you ask for $700K and spend $650K, you're a hero.
+====
+
+=== Part 5: Commitment Strategy (Reserved Instances / Savings Plans)
+
+Cloud providers offer discounts for capacity commitments:
+
+[cols="2,2,2,3",options="header"]
+|===
+|Commitment Type |Discount |Lock-In Period |Best For
+
+|*On-Demand*
+|0% (baseline)
+|None
+|Temporary capacity, testing
+
+|*1-Year Reserved*
+|30-40%
+|1 year
+|Stable baseline capacity
+
+|*3-Year Reserved*
+|50-60%
+|3 years
+|Well-established platforms
+
+|*Savings Plans*
+|20-30%
+|1-3 years
+|Flexible (can change instance types)
+|===
+
+[source,text]
+----
+Commitment Recommendation:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Baseline (24 nodes × $200/month):        $4,800/month on-demand
+
+Proposed:
+- 16 nodes (67%) on 1-Year Reserved:     $3,200/month (-33% discount)
+- 8 nodes (33%) on-demand:                $1,600/month (no discount)
+
+Total Monthly: $4,800/month
+Savings:       16 nodes × $66/month (33%) = $1,056/month saved
+Annual Impact: $1,056 × 12 = $12,672 saved
+
+ROI if we over-committed:
+- Risk: What if growth is slower and we only need 20 nodes?
+- Penalty: We pay for 16 RIs even if we only use 12 = $800/month wasted
+- Break-even: Savings ($1,056) > Risk ($800) → Still worth it
+
+Recommendation: Commit to 16 nodes (1-Year RI), keep 8 on-demand for flexibility
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+----
+
+[WARNING]
+====
+*The Commitment Trap*:
+
+Many organizations over-commit because "60% discount sounds great!"
+
+*Reality check*:
+
+If you commit to 30 nodes but only use 20:
+* You save 60% on 20 nodes: 20 × $200 × 0.6 = $2,400 discount
+* You waste 100% on 10 unused RIs: 10 × $200 × 1.0 = $2,000 wasted
+* Net savings: $2,400 - $2,000 = $400
+
+*vs*
+
+If you commit to 15 nodes and use all 20:
+* You save 60% on 15 nodes: 15 × $200 × 0.6 = $1,800 discount
+* You pay full price on 5 nodes: 5 × $200 × 1.0 = $1,000 on-demand
+* Net savings: $1,800 - $0 = $1,800
+
+*Under-committing is safer than over-committing.* Use the formula:
+
+```
+Commit to: (Baseline Capacity × 0.6) to (Baseline Capacity × 0.8)
+```
+
+*Never commit to 100% of forecasted capacity* - you'll regret it.
+====
+
+[#risk-analysis]
+== Risk Assessment Framework
+
+Every capacity plan has risks. Your job is to *identify them, quantify them, and propose mitigations*.
+
+=== Risk Matrix Template
+
+[cols="2,1,1,2,3",options="header"]
+|===
+|Risk |Likelihood |Impact |Cost if it Happens |Mitigation
+
+|*Growth faster than forecasted (+50%)*
+|Medium
+|High
+|$15K/month emergency capacity
+|Monitor Pod Velocity monthly; set alert at +20% variance
+
+|*Growth slower than forecasted (-30%)*
+|Low
+|Medium
+|$5K/month wasted RIs
+|Only commit to 60% of baseline (under-commit strategy)
+
+|*Major product launch (unplanned)*
+|Medium
+|High
+|$30K one-time spike
+|Require capacity review in product planning process
+
+|*etcd limit hit before cluster split*
+|Low
+|Critical
+|12-hour outage, $500K revenue loss
+|Set alert at 5GB; force cluster split planning
+
+|*Black Friday capacity insufficient*
+|Low
+|High
+|$100K revenue loss per hour
+|Pre-provision 2× baseline in Q4; run load test in October
+
+|*Key platform engineer leaves*
+|High
+|Medium
+|3-month delay in optimization work
+|Document capacity playbooks; cross-train 2nd engineer
+|===
+
+[TIP]
+====
+*How to Quantify Risk Impact*:
+
+*Revenue Loss* (for customer-facing outages):
+```
+Hourly Revenue × Outage Duration × % of Platform Affected
+```
+
+Example:
+* Company revenue: $50M/year
+* Hourly revenue: $50M / 365 / 24 = $5,708/hour
+* 2-hour outage affecting 50% of platform: $5,708 × 2 × 0.5 = $5,708
+
+*Waste Cost* (for over-provisioning):
+```
+(Over-Provisioned Cores - Used Cores) × Cost per Core × Duration
+```
+
+Example:
+* Over-provisioned by 20 cores
+* Cost: $200/core/month
+* Duration: 6 months
+* Waste: 20 × $200 × 6 = $24,000
+====
+
+[#lab7]
+== Lab 7: The Executive Pitch
+
+In this final lab, you'll create a 12-month capacity roadmap for your organization and present it in a 3-minute executive pitch.
+
+=== Step 1: Gather Your Data
+
+Collect the metrics from previous modules:
+
+[source,bash,role=execute]
+----
+# Module 1 Baseline
+echo "=== Module 1: Baseline ===" > ~/capacity-roadmap-data.txt
+echo "Total Pods: $(oc get pods -A --no-headers | wc -l)" >> ~/capacity-roadmap-data.txt
+echo "Worker Nodes: $(oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l)" >> ~/capacity-roadmap-data.txt
+
+# Module 2 Pod Velocity (30-day growth)
+echo "" >> ~/capacity-roadmap-data.txt
+echo "=== Module 2: Pod Velocity ===" >> ~/capacity-roadmap-data.txt
+echo "New Pods (30-day): [Run PromQL: increase(kube_pod_created[30d])]" >> ~/capacity-roadmap-data.txt
+
+# Module 3 Right-Sizing Opportunity
+echo "" >> ~/capacity-roadmap-data.txt
+echo "=== Module 3: Right-Sizing ===" >> ~/capacity-roadmap-data.txt
+oc adm top nodes -l node-role.kubernetes.io/worker >> ~/capacity-roadmap-data.txt
+
+# Module 4 etcd Health
+echo "" >> ~/capacity-roadmap-data.txt
+echo "=== Module 4: etcd Size ===" >> ~/capacity-roadmap-data.txt
+echo "etcd DB Size: [Check Prometheus: etcd_mvcc_db_total_size_in_bytes / 1024 / 1024] MB" >> ~/capacity-roadmap-data.txt
+
+# Module 5 Multi-Cluster View (if you have RHACM)
+echo "" >> ~/capacity-roadmap-data.txt
+echo "=== Module 5: Fleet View ===" >> ~/capacity-roadmap-data.txt
+echo "Managed Clusters: [Check RHACM Console]" >> ~/capacity-roadmap-data.txt
+
+cat ~/capacity-roadmap-data.txt
+----
+
+.Sample Output
+[source,textinfo]
+----
+=== Module 1: Baseline ===
+Total Pods: 142
+Worker Nodes: 5
+
+=== Module 2: Pod Velocity ===
+New Pods (30-day): [Run PromQL: increase(kube_pod_created[30d])]
+
+=== Module 3: Right-Sizing ===
+NAME                                         CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+ip-10-0-155-132.us-east-2.compute.internal   512m         6%     3932Mi          13%
+...
+
+=== Module 4: etcd Size ===
+etcd DB Size: [Check Prometheus: etcd_mvcc_db_total_size_in_bytes / 1024 / 1024] MB
+
+=== Module 5: Fleet View ===
+Managed Clusters: [Check RHACM Console]
+----
+
+=== Step 2: Fill Out the Roadmap Template
+
+Create a 12-month roadmap document:
+
+[source,bash,role=execute]
+----
+cat <<'EOF' > ~/12-month-capacity-roadmap.md
+# 12-Month Strategic Capacity Roadmap
+**Prepared by**: [Your Name]
+**Date**: April 7, 2026
+**Planning Horizon**: Q2 2026 - Q1 2027
+
+---
+
+## Executive Summary
+
+**Recommendation**: Approve $688K infrastructure budget for 2026 (+15% vs 2025)
+
+**Key Actions**:
+- Q2: Optimize existing workloads (save $5K/month)
+- Q3: Add 4 worker nodes to prod-east ($3.2K/month)
+- Q4: Split prod-east cluster + Black Friday buffer ($18K one-time)
+
+**Commitment Strategy**: Purchase 1-Year RIs for 16 nodes (save $12.7K/year)
+
+**Risks**: Growth forecasted at 15 services/month. If actual is 20+/month, will need emergency capacity in Q4.
+
+---
+
+## 1. Current State (Baseline)
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| Clusters | 3 | prod-east, prod-west, dev |
+| Worker Nodes | 24 | 8 per cluster |
+| Total Pods | 1,247 | |
+| CPU Allocated | 102 cores (42%) | |
+| CPU Used | 18.3 cores (7.6%) | 34% waste |
+| Monthly Cost | $50,000 | $206/core/month |
+
+**Finding**: We're wasting $17K/month on unused capacity (34% of allocatable CPU).
+
+---
+
+## 2. Growth Forecast (Pod Velocity Model)
+
+**30-Day Observation** (March 2026):
+- New deployments: 15 services
+- Avg replicas: 3 per service
+- Avg CPU request: 200m per pod
+
+**Quarterly Projection**:
+- Q2: +45 services → +27 cores
+- Q3: +45 services → +27 cores
+- Q4: +45 services → +27 cores
+
+**Year-End Total**: 183 cores allocated (+79% growth)
+
+---
+
+## 3. Quarterly Milestones
+
+### Q2 2026 (Apr-Jun) - Optimization Phase
+**Actions**:
+- Right-size top 20 over-provisioned workloads (Module 3)
+- Deploy RHACM Observability for fleet visibility (Module 5)
+- Implement automated capacity dashboards
+
+**Capacity**: +0 nodes
+**Cost Impact**: -$5,000/month (waste reduction)
+
+---
+
+### Q3 2026 (Jul-Sep) - Scale-Up
+**Actions**:
+- Add 4 worker nodes to prod-east (approaching 80% capacity)
+- Begin cluster split planning (etcd at 4.5GB, limit 8GB)
+
+**Capacity**: +4 nodes
+**Cost Impact**: +$3,200/month
+
+---
+
+### Q4 2026 (Oct-Dec) - Black Friday Preparation
+**Actions**:
+- Split prod-east into prod-east-1 and prod-east-2 (10K pod limit per cluster)
+- Pre-provision 8 temporary nodes for Black Friday (Nov 29)
+- Run load test in October (simulate 10× traffic)
+
+**Capacity**: +12 nodes (4 permanent + 8 temporary)
+**Cost Impact**: +$6,000/month baseline, +$12,800 one-time (Black Friday)
+
+---
+
+### Q1 2027 (Jan-Mar) - Stabilize
+**Actions**:
+- Scale down Black Friday temporary capacity
+- Implement Cluster Autoscaler for future spikes
+- Review actual vs forecasted growth (adjust Q2 2027 plan)
+
+**Capacity**: +0 nodes (back to Q4 baseline)
+**Cost Impact**: +$0 (net neutral)
+
+---
+
+## 4. Budget Forecast
+
+| Line Item | Amount | Notes |
+|-----------|--------|-------|
+| 2025 Baseline | $600,000 | Current run-rate |
+| Q2 Optimization | -$15,000 | Waste reduction |
+| Q3 Scale-Up | +$9,600 | 4 nodes × 3 months |
+| Q4 Cluster Split | +$18,000 | 12 nodes × 3 months |
+| Q4 Black Friday | +$12,800 | Temporary capacity |
+| **Subtotal** | **$625,400** | |
+| Contingency (10%) | +$62,540 | Unplanned growth |
+| **Total 2026 Budget** | **$687,940** | **+14.7% YoY** |
+
+---
+
+## 5. Commitment Strategy
+
+**Recommendation**: Purchase 1-Year Reserved Instances for 16 nodes (67% of baseline)
+
+| Option | Nodes | Monthly Cost | Annual Savings |
+|--------|-------|--------------|----------------|
+| All On-Demand | 24 | $4,800 | $0 (baseline) |
+| **16 RIs + 8 On-Demand** | **24** | **$4,800** | **$12,672** |
+| All RIs (risky) | 24 | $3,200 | $19,200 (if we use all 24) |
+
+**Rationale**:
+- 16-node commitment = 67% of baseline (safe under-commit)
+- Saves $12.7K/year even if growth is slower than forecasted
+- 8 on-demand nodes provide flexibility for spikes
+
+---
+
+## 6. Risk Analysis
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Growth exceeds forecast (+50%) | Medium | High ($15K/month) | Monitor Pod Velocity monthly; alert at +20% variance |
+| etcd limit before cluster split | Low | Critical (outage) | Alert at 5GB; force split planning |
+| Black Friday capacity insufficient | Low | High ($100K revenue loss) | Pre-provision 2×; load test in Oct |
+| Platform engineer turnover | High | Medium (3mo delay) | Document playbooks; cross-train |
+
+---
+
+## 7. Success Metrics
+
+**How we'll measure success in 2026**:
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Cluster Availability | >99.9% uptime | Prometheus uptime dashboard |
+| Capacity Waste | <15% unused CPU | Monthly right-sizing reviews |
+| Budget Variance | Within ±10% of forecast | Finance monthly reports |
+| Incident Response | <1 hour to add emergency capacity | Runbook automation |
+
+---
+
+## 8. Recommendation
+
+**Approve the following for 2026**:
+
+✅ **Budget**: $687,940 infrastructure spend (+14.7% vs 2025)
+✅ **Commitment**: 1-Year RIs for 16 nodes (saves $12.7K/year)
+✅ **Headcount**: +1 Platform Engineer in Q3 (support cluster split)
+✅ **Timeline**: Begin Q2 optimization immediately (quick wins)
+
+**Next Steps**:
+1. Finance approval by April 15, 2026
+2. Begin RI purchase by May 1, 2026
+3. Kick off right-sizing project in Q2
+4. Monthly capacity review meetings (30 min/month)
+
+---
+
+**Questions?**
+
+EOF
+
+cat ~/12-month-capacity-roadmap.md
+----
+
+[TIP]
+====
+*Customize This Template*:
+
+Replace the sample numbers with your actual data:
+
+* Total pods → from `oc get pods -A --no-headers | wc -l`
+* Worker nodes → from `oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l`
+* Monthly cost → from your cloud bill or finance team
+* Pod Velocity → from Module 2 PromQL queries
+* etcd size → from Prometheus `etcd_mvcc_db_total_size_in_bytes`
+
+*Don't have all the data?* Use placeholders like `[TBD - check with finance]` and note them in the "Next Steps" section.
+====
+
+=== Step 3: Practice Your 3-Minute Pitch
+
+You'll present this roadmap to leadership. Structure it like this:
+
+*Slide 1 (30 seconds): The Ask*
+
+> "I'm requesting approval for $688K in infrastructure spend for 2026—a 15% increase over last year. This will support 79% growth in our service count while reducing waste by $60K through optimization."
+
+*Slide 2 (45 seconds): The Why*
+
+> "Our platform is growing fast: we're adding 15 new services per month. At that pace, we'll hit capacity limits in Q3 without action. We also have a Black Friday risk—last year's spike showed we need 2× baseline capacity for 8 hours."
+
+*Slide 3 (45 seconds): The Plan*
+
+> "The plan has four phases:
+> Q2 - Optimize existing workloads, save $5K/month.
+> Q3 - Add 4 nodes to prod-east as we approach 80% capacity.
+> Q4 - Split the cluster to avoid etcd limits and pre-provision for Black Friday.
+> Q1 2027 - Scale down and stabilize.
+>
+> We'll also buy 1-Year Reserved Instances for 67% of our baseline, saving $12.7K annually."
+
+*Slide 4 (30 seconds): The Risks*
+
+> "The biggest risk is faster-than-forecasted growth. If we add 20 services/month instead of 15, we'll need emergency capacity in Q4 costing $15K/month. We're mitigating this with monthly monitoring and quarterly reviews."
+
+*Slide 5 (30 seconds): Next Steps*
+
+> "I need three things:
+> 1. Budget approval by April 15 so we can start Q2 optimization.
+> 2. Headcount approval for +1 Platform Engineer in Q3 to support the cluster split.
+> 3. Monthly 30-minute capacity reviews with this group to track actuals vs forecast.
+>
+> Questions?"
+
+[IMPORTANT]
+====
+*The 3-Minute Rule*:
+
+Executives have limited attention spans. Your pitch must:
+
+✅ Start with the recommendation ("approve $688K")
+✅ Explain why in business terms ("support 79% growth")
+✅ Show you've thought about risks ("if growth is faster...")
+✅ End with clear next steps ("budget approval by April 15")
+
+❌ Don't:
+* Start with "Let me give you some background..." (skip to the ask)
+* Use jargon ("etcd database size", "kubelet maxPods") (translate to business impact)
+* Present without a recommendation ("here are three options, what do you think?") (pick one, defend it)
+
+*You're the expert.* They're counting on you to make a recommendation, not just present data.
+====
+
+=== Step 4: Peer Review Exercise
+
+[TIP]
+====
+*Facilitator: Split the room into groups of 3-4*
+
+**Instructions**:
+
+1. Each person presents their 3-minute pitch to the group (15 minutes total for 4 people)
+2. After each pitch, the group provides feedback using this rubric:
+
+**Scoring Rubric** (1-5 scale):
+
+* *Clarity*: Did I understand the recommendation in the first 30 seconds?
+* *Data-Driven*: Were numbers used to justify the plan (not just opinions)?
+* *Risk-Aware*: Did they identify what could go wrong?
+* *Actionable*: Did they give clear next steps?
+* *Executive-Appropriate*: Did they avoid jargon and focus on business impact?
+
+**Feedback Format**:
+
+> "Your clarity score is 5/5 - I knew exactly what you were asking for. But your data-driven score is 3/5 - you mentioned 'growing fast' but didn't say how fast. Suggest adding the '79% growth' number from your roadmap."
+
+3. Each person revises their pitch based on feedback and presents v2 (5 minutes total)
+
+**Total time**: 30 minutes per group
+====
+
+=== Step 5: Export the Roadmap
+
+Save your roadmap for use back at your organization:
+
+[source,bash,role=execute]
+----
+# Save as PDF (requires pandoc)
+# pandoc ~/12-month-capacity-roadmap.md -o ~/12-month-capacity-roadmap.pdf
+
+# Or save as HTML
+# pandoc ~/12-month-capacity-roadmap.md -s -o ~/12-month-capacity-roadmap.html
+
+# For now, just copy to clipboard for pasting into Google Docs / Confluence
+cat ~/12-month-capacity-roadmap.md
+----
+
+[NOTE]
+====
+*Back at Your Organization*:
+
+After this workshop:
+
+1. Schedule a 1-hour capacity planning session with your team
+2. Gather the baseline data (Module 1 audit commands)
+3. Run Pod Velocity calculations (Module 2 PromQL)
+4. Fill out the roadmap template with your actual numbers
+5. Present to leadership within 30 days
+
+*Don't wait for perfection.* A rough roadmap this month is better than a perfect one in six months.
+====
+
+== Module 7 Summary: From Tactics to Strategy
+
+You've now completed the full capacity planning lifecycle:
+
+✅ **Module 1**: Established baseline (where are we today?)
+✅ **Module 2**: Built forecasting model (where are we going?)
+✅ **Module 3**: Right-sized workloads (developer perspective)
+✅ **Module 4**: Understood infrastructure limits (density, etcd, split vs grow)
+✅ **Module 5**: Enabled observability (multi-cluster visibility)
+✅ **Module 6**: Survived a chaos simulation (decision-making under pressure)
+✅ **Module 7**: Created a strategic roadmap (executive communication)
+
+=== The Maturity Model Revisited
+
+Where is your organization on the capacity planning maturity curve?
+
+*Level 1 - Reactive (Firefighting)*:
+* No forecasting, just react to outages
+* Add nodes when the cluster is already full
+* No budget planning, just "emergency POs"
+
+*Level 2 - Tactical (Short-Term)*:
+* Quarterly capacity reviews
+* Add nodes based on current trends (linear extrapolation)
+* Budget planning exists but is often wrong
+
+*Level 3 - Operational (Data-Driven)* ← This Workshop Gets You Here:
+* Monthly capacity reviews with Pod Velocity tracking
+* Right-sizing workloads to reduce waste
+* 12-month roadmap with quarterly milestones
+* RHACM Observability for fleet visibility
+
+*Level 4 - Strategic (Predictive)*:
+* Automated forecasting integrated with product roadmap
+* Capacity planning drives architecture decisions (split vs grow)
+* FinOps team partnership (chargeback, showback, commitment optimization)
+* Self-service capacity dashboards for app teams
+
+[IMPORTANT]
+====
+*Most Platform Teams Are at Level 1-2*
+
+This workshop moved you to Level 3 in one day. Getting to Level 4 takes 6-12 months:
+
+* Month 1-2: Implement Module 1-3 practices (baseline, forecasting, right-sizing)
+* Month 3-4: Deploy Module 5 observability (RHACM + custom dashboards)
+* Month 5-6: Automate forecasting (integrate with CI/CD pipeline)
+* Month 7-12: Refine the model based on actuals vs forecast
+
+*Start small*: Pick one cluster, run the baseline audit (Module 1), and build the Pod Velocity model (Module 2). That's 80% of the value.
+====
+
+== Key Takeaways
+
+* *Executives care about cost, risk, and growth—not technical metrics like etcd size*
+* *Lead with the recommendation, then justify with data*
+* *A 12-month roadmap should have quarterly milestones and a contingency budget*
+* *Under-commit on Reserved Instances (60-80% of baseline) to avoid waste*
+* *Risk analysis should quantify impact in dollars and propose mitigations*
+* *Capacity planning is a collaboration between platform, app teams, finance, and leadership*
+
+== Congratulations!
+
+You've completed the **Strategic Capacity Planning & Forecasting for OpenShift at Scale** workshop.
+
+You now have:
+
+✅ A baseline audit methodology (Module 1)
+✅ A Pod Velocity forecasting model (Module 2)
+✅ Right-sizing best practices (Module 3)
+✅ Infrastructure sizing formulas (Module 4)
+✅ Multi-cluster observability dashboards (Module 5)
+✅ Incident response experience (Module 6)
+✅ A 12-month strategic roadmap template (Module 7)
+
+=== Next Steps
+
+1. *Within 7 days*: Run the Module 1 baseline audit on your production clusters
+2. *Within 30 days*: Build the Module 2 Pod Velocity dashboard in your RHACM Grafana
+3. *Within 60 days*: Complete a 12-month capacity roadmap and present to leadership
+4. *Within 90 days*: Implement Module 3 right-sizing for your top 20 over-provisioned workloads
+
+[TIP]
+====
+*Share Your Success*:
+
+After implementing these practices, share your results:
+
+* Blog post: "How we reduced cloud spend by 30% with capacity planning"
+* Conference talk: "From firefighting to forecasting: our capacity planning journey"
+* Internal lunch-and-learn: "Capacity planning 101" for your app teams
+
+*Teaching others reinforces your own learning* and builds capacity planning muscle across your organization.
+====
+
+=== Additional Resources
+
+* *Red Hat Docs*: https://access.redhat.com/documentation/en-us/openshift_container_platform/4.14/html/scalability_and_performance/index
+* *RHACM Observability*: https://access.redhat.com/documentation/en-us/red_hat_advanced_cluster_management_for_kubernetes/2.9/html/observability/index
+* *FinOps Foundation*: https://www.finops.org/ (cloud cost optimization best practices)
+* *CNCF Cost Optimization*: https://tag-runtime.cncf.io/wgs/cost-optimization/
+
+=== Feedback
+
+We'd love to hear how this workshop helped you:
+
+* What worked well?
+* What was confusing?
+* What would you add/change?
+* Did you implement these practices at your organization? What happened?
+
+*Share feedback*: [Insert feedback form URL or email]
+
+---
+
+*Thank you for attending!* Now go forth and plan some capacity. 🚀

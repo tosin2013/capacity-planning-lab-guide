@@ -1,0 +1,714 @@
+= Module 4: Infrastructure Track - Fleet Architecture & Sizing
+
+_Duration: 90 minutes_
+
+[#objectives]
+== Learning Objectives
+
+By the end of this module, you will be able to:
+
+* Calculate minimum worker node counts using maxPods mathematics
+* Understand OpenShift control plane limits (etcd constraints)
+* Determine when to split clusters versus grow them (the monolith vs federation decision)
+* Tune kubeletConfig to increase node density from 250 to 500+ pods per node
+* Measure the impact of density changes on node memory overhead and control plane performance
+
+[#node-density]
+== The Mathematics of Node Density
+
+As clusters grow from hundreds to thousands of nodes, new bottlenecks emerge that aren't visible at smaller scales. The most critical constraint is *how many pods can run on a single worker node*.
+
+=== The Default: 250 Pods Per Node
+
+OpenShift sets a default limit of *250 pods per node* via the kubelet configuration. This seems like a large number, but it's surprisingly easy to hit:
+
+[source,text]
+----
+Scenario: Microservices architecture with 3 replicas per service
+
+100 services × 3 replicas = 300 pods
+300 pods ÷ 250 pods/node = 1.2 nodes minimum
+
+But you need N+1 redundancy, so:
+1.2 × 2 = 2.4 → 3 worker nodes minimum
+----
+
+[IMPORTANT]
+====
+*The Pod Density Formula*:
+
+```
+Minimum Worker Nodes = ceil((Total Pods / maxPods per node) × Redundancy Factor)
+```
+
+Where:
+* Total Pods = sum of all deployment replicas across the cluster
+* maxPods per node = kubelet configuration (default 250, tunable to 500+)
+* Redundancy Factor = typically 1.5-2.0 for production (allows for node failures and rolling updates)
+
+Example:
+* 1000 total pods
+* 250 maxPods/node
+* 2.0 redundancy factor
+
+```
+ceil((1000 / 250) × 2.0) = ceil(4 × 2.0) = ceil(8) = 8 worker nodes minimum
+```
+====
+
+=== Why 250? The Memory Overhead Problem
+
+Each pod consumes memory *beyond its container requests* for:
+
+* Kubelet tracking structures (~2KB per pod)
+* CNI plugin state (Open vSwitch flows, iptables rules)
+* Container runtime metadata (CRI-O)
+* Linux kernel structures (cgroups, namespaces)
+
+At 250 pods per node, this overhead is approximately:
+
+[source,text]
+----
+250 pods × ~10MB overhead = ~2.5GB node memory reserved for Kubernetes itself
+----
+
+[WARNING]
+====
+*The Hidden Tax*:
+
+On a 32GB worker node:
+* Application pods see ~29GB allocatable memory (32GB - 3GB reserved for system)
+* At 250 pods, ~2.5GB of that is Kubernetes overhead
+* Effective capacity for app workloads: ~26.5GB (~17% overhead)
+
+*If you increase maxPods to 500*:
+* 500 pods × ~10MB = ~5GB Kubernetes overhead
+* Effective capacity: ~24GB (~25% overhead)
+
+*The trade-off*: Higher density = more efficient node usage, but less memory per pod on average.
+====
+
+=== When to Increase maxPods (500+)
+
+Increase maxPods beyond 250 when:
+
+✅ You have many small pods (10-50MB memory each) - e.g., serverless functions, edge workloads
+✅ Your nodes have 64GB+ memory (overhead percentage decreases)
+✅ You're optimizing for node count reduction (cost savings on bare-metal)
+✅ Control plane can handle the API request load (see etcd limits below)
+
+Do NOT increase maxPods if:
+
+❌ Pods average >500MB memory (you won't fit 500 pods anyway)
+❌ Cluster has >5000 total pods (etcd limit - see next section)
+❌ Control plane nodes are undersized (<8 cores, <32GB RAM)
+
+[#etcd-limits]
+== The etcd 8GB Database Limit
+
+OpenShift's control plane stores all cluster state in *etcd*, a distributed key-value store. The hard limit is:
+
+[IMPORTANT]
+====
+*etcd database maximum size: 8GB*
+
+Once etcd reaches 8GB, the cluster enters a degraded state:
+* API requests slow down (300ms → 3000ms response times)
+* New pod creations fail intermittently
+* kubectl/oc commands timeout
+* etcd requires defragmentation and compaction
+====
+
+=== What Consumes etcd Space?
+
+The primary consumers are:
+
+[cols="2,2,3",options="header"]
+|===
+|Object Type |Typical Size |Impact at Scale
+
+|*Pods*
+|~4KB per pod
+|10,000 pods = 40MB
+
+|*Events*
+|~1KB per event
+|High churn apps generate 100K+ events/day = 100MB/day
+
+|*ConfigMaps/Secrets*
+|Variable (1KB-1MB)
+|Large ConfigMaps (>100KB) are dangerous
+
+|*Custom Resources*
+|Variable
+|Operators creating 1000s of CRs can consume GB
+|===
+
+[WARNING]
+====
+*The Event Explosion Problem*:
+
+A single failing CrashLoopBackOff pod generates:
+
+```
+1 event every 10 seconds × 60 sec × 60 min × 24 hr = 8640 events/day
+8640 events × 1KB = 8.6MB per failing pod per day
+```
+
+100 failing pods = 860MB/day of etcd growth from events alone!
+
+*Solution*: OpenShift automatically prunes events older than 3 hours, but high-churn environments need monitoring.
+====
+
+=== The 10,000 Pod Ceiling
+
+Based on Red Hat's official support limits:
+
+[source,text]
+----
+Maximum supported cluster size (OpenShift 4.14+):
+- 500 worker nodes
+- 10,000 pods total
+- 120,000 total objects in etcd
+----
+
+[TIP]
+====
+*How to Monitor etcd Usage*:
+
+```bash
+# Check current etcd database size
+oc get etcd cluster -o jsonpath='{.status.conditions[?(@.type=="EtcdMembersAvailable")].message}'
+
+# Query Prometheus for etcd size
+etcd_mvcc_db_total_size_in_bytes / 1024 / 1024  # Convert to MB
+```
+
+*Alert Thresholds*:
+* 4GB (50%) - Start planning capacity relief
+* 6GB (75%) - Urgent action required
+* 7GB (87.5%) - Critical, begin cluster split planning
+====
+
+[#split-vs-grow]
+== The Monolith vs Federation Decision
+
+When you hit etcd limits or operational complexity, you face a choice:
+
+=== Option 1: Grow the Cluster (Scale Up)
+
+*Approach*: Add more worker nodes, tune maxPods, optimize object count
+
+*Pros*:
+* Simpler operations (one cluster to manage)
+* Shared resource pool (better bin-packing efficiency)
+* Centralized observability
+
+*Cons*:
+* Blast radius increases (outage affects everyone)
+* etcd limits eventually force a split anyway
+* Harder to isolate noisy neighbors
+
+*Best For*: Organizations with <5000 pods, strong platform team, low multi-tenancy requirements
+
+=== Option 2: Split the Cluster (Scale Out)
+
+*Approach*: Create multiple clusters, federate management via RHACM
+
+*Pros*:
+* Fault isolation (one cluster failure doesn't take down all apps)
+* Separate etcd databases (10,000 pod limit per cluster → 30,000 pods across 3 clusters)
+* Multi-tenancy enforcement (different teams get different clusters)
+
+*Cons*:
+* Operational overhead (3 clusters = 3× control planes to patch/upgrade)
+* Resource fragmentation (each cluster needs spare capacity, can't share)
+* Cross-cluster networking complexity (if apps need to talk across clusters)
+
+*Best For*: Organizations with >10,000 pods, strong multi-tenancy requirements, or geographic distribution needs
+
+=== The Hybrid Approach: RHACM Fleet Management
+
+Red Hat Advanced Cluster Management (RHACM) enables the "best of both worlds":
+
+* Multiple clusters for isolation and scale
+* Centralized policy management (governance, security, config)
+* Unified observability (one Grafana dashboard across all clusters)
+* Application portability (ArgoCD ApplicationSets deploy to multiple clusters)
+
+[IMPORTANT]
+====
+*The RHACM Fleet Model*:
+
+```
+Hub Cluster (RHACM)
+├── Production-East (10K pods)
+├── Production-West (10K pods)
+├── Dev-Sandbox (2K pods)
+└── Edge-Retail (1K pods)
+────────────────────────────────
+Total: 23K pods across 4 clusters
+```
+
+*Management Overhead*:
+* Hub cluster: 16 core / 64GB RAM control plane
+* Each managed cluster: Standard 3-node control plane
+
+*Capacity Planning Impact*:
+You now forecast per-cluster, then aggregate at the hub level. Module 5 covers this in detail.
+====
+
+[#lab4]
+== Lab 4: The Density Game
+
+In this hands-on lab, you'll modify the kubeletConfig to increase maxPods from 250 to 500, then observe the impact on node memory overhead and control plane performance during a mass-scheduling event.
+
+=== Part 1: Baseline - Check Current Density
+
+First, let's see the current maxPods setting:
+
+[source,bash,role=execute]
+----
+oc get nodes -o json | jq -r '.items[] | select(.metadata.labels["node-role.kubernetes.io/worker"] == "") | "\(.metadata.name)\t\(.status.capacity.pods)"' | head -3
+----
+
+.Sample Output
+[source,textinfo]
+----
+ip-10-0-145-209.us-east-2.compute.internal	250
+ip-10-0-155-132.us-east-2.compute.internal	250
+ip-10-0-174-87.us-east-2.compute.internal	250
+----
+
+Now check how many pods are currently running per node:
+
+[source,bash,role=execute]
+----
+oc get pods -A -o json | jq -r '.items[] | .spec.nodeName' | sort | uniq -c | sort -rn | head -5
+----
+
+.Sample Output
+[source,textinfo]
+----
+     42 ip-10-0-145-209.us-east-2.compute.internal
+     38 ip-10-0-155-132.us-east-2.compute.internal
+     35 ip-10-0-174-87.us-east-2.compute.internal
+----
+
+[NOTE]
+====
+*Current State*:
+* maxPods = 250
+* Actual pods per node = 35-42 (~16% utilization)
+* Plenty of headroom for growth
+
+*Question for Discussion*: If we have 100 nodes at 16% pod density utilization, are we over-provisioned?
+====
+
+=== Part 2: Check Node Memory Overhead
+
+Let's see how much memory is consumed by Kubernetes overhead (not app pods):
+
+[source,bash,role=execute]
+----
+oc adm top nodes -l node-role.kubernetes.io/worker | awk '{print $1 "\t" $5}'
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                                         MEMORY%
+ip-10-0-145-209.us-east-2.compute.internal   13%
+ip-10-0-155-132.us-east-2.compute.internal   19%
+ip-10-0-174-87.us-east-2.compute.internal   12%
+----
+
+Now let's calculate the overhead:
+
+[source,bash,role=execute]
+----
+# Get allocatable memory for a worker node
+oc get node -l node-role.kubernetes.io/worker -o json | jq -r '.items[0].status.allocatable.memory'
+----
+
+.Sample Output
+[source,textinfo]
+----
+30263052Ki  (~29GB allocatable)
+----
+
+[TIP]
+====
+*Memory Overhead Calculation*:
+
+On a 32GB node:
+* Allocatable: 29GB (32GB - 3GB system reserved)
+* Current usage at 42 pods: ~3.8GB (13% of 29GB)
+* App pod memory requests: ~2.5GB
+* Kubernetes overhead: 3.8GB - 2.5GB = ~1.3GB
+
+*Overhead per pod*: 1.3GB / 42 pods ≈ *31MB per pod*
+
+(This is higher than the theoretical 10MB because it includes CNI and CRI-O state.)
+====
+
+=== Part 3: Increase maxPods to 500
+
+Now we'll create a custom KubeletConfig to increase the pod limit:
+
+[source,bash,role=execute]
+----
+cat <<EOF | oc apply -f -
+apiVersion: machineconfiguration.openshift.io/v1
+kind: KubeletConfig
+metadata:
+  name: set-max-pods-500
+spec:
+  machineConfigPoolSelector:
+    matchLabels:
+      pools.operator.machineconfiguration.openshift.io/worker: ""
+  kubeletConfig:
+    maxPods: 500
+EOF
+----
+
+.Sample Output
+[source,textinfo]
+----
+kubeletconfig.machineconfiguration.openshift.io/set-max-pods-500 created
+----
+
+[IMPORTANT]
+====
+*What Just Happened?*
+
+The Machine Config Operator (MCO) will:
+
+1. Generate a new MachineConfig with the maxPods setting
+2. Roll out the change to worker nodes *one at a time* (to avoid downtime)
+3. Each node will:
+   - Drain all pods
+   - Reboot with the new kubelet configuration
+   - Rejoin the cluster
+
+*Expected Duration*: 10-15 minutes per node (30-45 minutes total for a 3-node cluster)
+
+*Watch the rollout*:
+```bash
+watch oc get mcp worker
+```
+====
+
+Monitor the Machine Config Pool update:
+
+[source,bash,role=execute]
+----
+oc get mcp worker -w
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME     CONFIG                                             UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT
+worker   rendered-worker-abc123                             True      False      False      3              3                   3
+worker   rendered-worker-def456                             False     True       False      3              2                   1
+worker   rendered-worker-def456                             False     True       False      3              1                   2
+worker   rendered-worker-def456                             True      False      False      3              3                   3
+----
+
+Press `Ctrl+C` once UPDATED changes back to `True`.
+
+Now verify maxPods increased:
+
+[source,bash,role=execute]
+----
+oc get nodes -o json | jq -r '.items[] | select(.metadata.labels["node-role.kubernetes.io/worker"] == "") | "\(.metadata.name)\t\(.status.capacity.pods)"' | head -3
+----
+
+.Sample Output
+[source,textinfo]
+----
+ip-10-0-145-209.us-east-2.compute.internal	500
+ip-10-0-155-132.us-east-2.compute.internal	500
+ip-10-0-174-87.us-east-2.compute.internal	500
+----
+
+[TIP]
+====
+*Success Criteria*:
+* All worker nodes now show `500` for pod capacity
+* UPDATED column in `oc get mcp worker` is `True`
+* All pods have rescheduled successfully
+
+If any node shows DEGRADED=True, check:
+```bash
+oc get mc -l machineconfiguration.openshift.io/role=worker --sort-by=.metadata.creationTimestamp | tail -1
+oc describe node <degraded-node-name>
+```
+====
+
+=== Part 4: The Mass-Scheduling Event
+
+Now we'll simulate a "Black Friday deployment" where you need to scale from 50 pods to 500 pods in under 2 minutes.
+
+First, check current control plane API response times:
+
+[source,bash,role=execute]
+----
+time oc get pods -A --no-headers | wc -l
+----
+
+.Sample Output
+[source,textinfo]
+----
+127
+
+real	0m0.342s   ← Baseline: 342ms to list all pods
+----
+
+Now deploy the mass-scheduling test:
+
+[source,bash,role=execute]
+----
+oc create deployment density-test --image=registry.access.redhat.com/ubi9/ubi-micro:latest --replicas=400 -n {namespace}
+oc set resources deployment density-test -n {namespace} --requests=cpu=10m,memory=16Mi --limits=cpu=50m,memory=32Mi
+----
+
+Watch the scheduling progress:
+
+[source,bash,role=execute]
+----
+watch -n 2 'oc get deployment density-test -n {namespace} && echo "" && oc get pods -n {namespace} --field-selector=status.phase!=Running | wc -l'
+----
+
+.Sample Output (after 60 seconds)
+[source,textinfo]
+----
+NAME           READY     UP-TO-DATE   AVAILABLE   AGE
+density-test   287/400   400          287         1m
+
+113   ← Pods still pending/creating
+----
+
+[WARNING]
+====
+*What You're Observing*:
+
+During mass-scheduling, the control plane is processing:
+
+* 400 pod create API requests
+* 400 scheduler decisions (which node has capacity?)
+* 400 kubelet "start container" operations
+* 400 CNI plugin "allocate IP" calls
+
+*If the cluster was already near maxPods limits*, some pods would remain Pending with:
+```
+Events:
+  Warning  FailedScheduling  pod/density-test-abc123
+    0/3 nodes available: 3 node(s) had taint {node.kubernetes.io/disk-pressure: }, that the pod didn't tolerate,
+    3 Insufficient pods (node has 248 running, limit is 250)
+```
+====
+
+Once the deployment is fully ready, test API response time again:
+
+[source,bash,role=execute]
+----
+time oc get pods -A --no-headers | wc -l
+----
+
+.Sample Output
+[source,textinfo]
+----
+527
+
+real	0m1.245s   ← Degraded: 1245ms (3.6× slower than baseline)
+----
+
+[IMPORTANT]
+====
+*Performance Impact Analysis*:
+
+Before mass-scheduling:
+* 127 pods across cluster
+* API response: 342ms
+
+After mass-scheduling:
+* 527 pods across cluster (4.1× increase)
+* API response: 1245ms (3.6× slower)
+
+*Why?*
+* etcd query time increases with object count
+* API server has to filter/sort more results
+* Network serialization overhead (more data to send)
+
+*Is this acceptable?* For most use cases, yes. But if you're building a platform for 10,000+ pods, you need to:
+* Scale control plane nodes vertically (more CPU/RAM)
+* Implement API priority and fairness (limit low-priority requests)
+* Consider cluster federation (split the load)
+====
+
+=== Part 5: Check Memory Overhead Impact
+
+Now let's see if memory overhead increased with the higher pod count:
+
+[source,bash,role=execute]
+----
+oc adm top nodes -l node-role.kubernetes.io/worker
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                                         CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+ip-10-0-145-209.us-east-2.compute.internal   423m         5%     6201Mi          21%
+ip-10-0-155-132.us-east-2.compute.internal   512m         6%     7932Mi          27%
+ip-10-0-174-87.us-east-2.compute.internal    445m         5%     5845Mi          20%
+----
+
+Compare to Part 2 (before the test):
+* Before: 13-19% memory usage at 35-42 pods/node
+* After: 20-27% memory usage at 150-180 pods/node
+
+Calculate overhead per pod:
+
+[source,bash,role=execute]
+----
+echo "Node: ip-10-0-155-132"
+echo "Memory usage: 7932Mi (27% of 29GB)"
+echo "Pod count: $(oc get pods -A -o json | jq -r '.items[] | select(.spec.nodeName == "ip-10-0-155-132.us-east-2.compute.internal") | .metadata.name' | wc -l) pods"
+----
+
+.Sample Output
+[source,textinfo]
+----
+Node: ip-10-0-155-132
+Memory usage: 7932Mi (27% of 29GB)
+Pod count: 176 pods
+----
+
+[TIP]
+====
+*Updated Overhead Calculation*:
+
+* Total memory usage: 7932Mi
+* App pod requests (400 × 16Mi = 6400Mi for density-test + ~1000Mi for original pods): ~7400Mi
+* Kubernetes overhead: 7932Mi - 7400Mi = ~532Mi
+
+*Overhead per pod*: 532Mi / 176 pods ≈ *3MB per pod*
+
+*Why is this lower than Part 2?*
+
+The density-test pods are tiny (16Mi each) and mostly idle, so they're not generating much CNI/CRI-O state. In production with active workloads, expect 10-30MB overhead per pod.
+
+*Key Finding*: Kubernetes overhead is NOT linear with pod count—it depends on pod activity (network connections, volume mounts, etc.).
+====
+
+=== Part 6: Clean Up
+
+Remove the density test deployment:
+
+[source,bash,role=execute]
+----
+oc delete deployment density-test -n {namespace}
+----
+
+Optionally, revert maxPods back to 250 (if this was just a test):
+
+[source,bash,role=execute]
+----
+oc delete kubeletconfig set-max-pods-500
+----
+
+[WARNING]
+====
+*Rolling Back maxPods*:
+
+This will trigger another MCO rollout (10-15 minutes per node). Only do this if:
+
+* You determined 500 maxPods is too high for your workload
+* Control plane performance degraded unacceptably
+* You're running this lab in a shared environment and need to reset
+
+*For production*: Leave maxPods at 500 if your nodes have 64GB+ RAM and you have many small pods.
+====
+
+== Lab 4 Summary: Density Decisions
+
+You've now experienced:
+
+✅ maxPods configuration via KubeletConfig CRD
+✅ Machine Config Operator rollout behavior
+✅ Mass-scheduling impact on control plane API performance
+✅ Memory overhead measurement at different pod densities
+✅ Trade-offs between node density and operational complexity
+
+=== The Density Decision Matrix
+
+Use this matrix to choose your maxPods setting:
+
+[cols="2,2,2,3",options="header"]
+|===
+|Pod Count |Avg Pod Size |Node RAM |Recommended maxPods
+
+|<5000
+|<100MB
+|32GB
+|250 (default)
+
+|<5000
+|<50MB
+|64GB
+|500
+
+|>5000
+|<100MB
+|64GB
+|500 (and plan cluster split at 8000 pods)
+
+|>5000
+|>200MB
+|64GB
+|250 (you won't hit 500 anyway due to memory)
+|===
+
+[IMPORTANT]
+====
+*The Infrastructure Social Contract*:
+
+Platform teams often resist increasing maxPods because:
+
+* "It complicates capacity planning"
+* "Nodes become harder to drain during maintenance"
+* "Control plane might not handle the load"
+
+Developers often push for higher maxPods because:
+
+* "We have hundreds of tiny sidecar containers"
+* "Serverless workloads need high density"
+* "Our FinOps team says we're wasting nodes"
+
+*The resolution*:
+
+1. Measure actual pod sizes and count trends (Module 2's Pod Velocity)
+2. Test density changes in dev/staging first (this lab)
+3. Monitor control plane performance after the change (Module 5)
+4. Set cluster-wide policies for minimum pod requests (prevents abuse)
+
+*Accurate capacity planning requires collaboration between infra and dev teams.* This lab proves the impact is measurable and manageable.
+====
+
+== Key Takeaways
+
+* *maxPods default (250) is conservative but safe for most workloads*
+* *Increasing to 500 makes sense for small pods (10-50MB) on large nodes (64GB+)*
+* *Memory overhead is 10-30MB per pod depending on workload activity*
+* *etcd 8GB limit forces cluster split at ~10,000 pods regardless of maxPods tuning*
+* *Control plane API performance degrades with pod count—plan for 3-5× slower responses at 10K pods*
+* *RHACM fleet management enables scaling beyond single-cluster limits*
+
+== Next Steps
+
+In xref:module-05.adoc[Module 5: Fleet Observability with RHACM], you'll enable Multi-Cluster Observability, customize metric allowlists, and build a unified capacity dashboard that shows pod density, etcd usage, and node requirements across your entire fleet.
+
+The maxPods tuning from this module directly impacts the density metrics you'll visualize in Module 5's "God's-Eye Dashboard."

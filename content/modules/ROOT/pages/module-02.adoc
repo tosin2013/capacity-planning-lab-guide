@@ -1,138 +1,378 @@
-= Managing an Application from GitHub
+= Module 2: The Mathematics of Forecasting
 
-In the first half of this workshop, we packaged an application into this portable container format manually using rpms.
-In the second half, we will consider that you may want to manage software from GitHub or some kind of software versioning application.
-Rather than installing rpms, we have individual software files and pull them out of that version control into a group of systems.
+_Duration: 60 minutes_
 
-== Install RHEL 8 UBI
+[#objectives]
+== Learning Objectives
 
-In this lab, we will be using a different Red Hat Enterprise Linux version in my container. 
+By the end of this module, you will be able to:
 
-. Verify the host system release 
+* Understand why linear CPU/Memory trending fails for microservices architectures
+* Calculate "Pod Velocity" using Prometheus metrics
+* Build custom forecasting dashboards in Red Hat Advanced Cluster Management (RHACM)
+* Project quarterly node requirements based on deployment patterns
 
-+
-[source,bash]
+[#pod-velocity]
+== Why Linear Models Fail
+
+Traditional capacity planning uses linear extrapolation:
+
+[source,text]
 ----
-cat /etc/redhat-release
-----
-+ 
-NOTE: The `bastion` system is Red Hat Enterprise Linux 9, and when you built the previous container, you used the UBI9 image. This means both the image and the container were built off the same Red Hat Enterprise Linux packages. 
-
-. As we did previously in this lab, Use `buildah from` to pull down the Red Hat Enterprise Linux 8 UBI.
-
-+
-[source,bash]
-----
-buildah from registry.access.redhat.com/ubi8/ubi
+If CPU usage grows 5% per month, in 12 months we'll need 60% more CPU.
 ----
 
-NOTE: Because you already pulled one image named `ubi-working-container` this one is called `ubi-working-container-1`. 
+*This breaks for microservices because:*
 
-[#prerequisites]
-== Install Prerequisites
+* New services deploy in bursts (not linear growth)
+* Resource requests vary wildly per service
+* Seasonal traffic patterns create spikes
+* Deployment velocity (new pods/month) matters more than raw CPU trends
 
-Now that you have a working container, you will use the same process as before installing all the prerequisites, changing config files, and manipulating the contents of this container to be in the desired state.
+=== The Pod Velocity Model
 
-The software you will install is a JavaScript-based game that runs on a web browser. As before in the lab, use dnf to install software inside the container. 
+Instead of tracking CPU percentage, track *how many pods are being deployed over time*:
 
-. Use `buildah run` and install Apache (`httpd`) into the `ubi-working-container-1` container. 
-+
-[source,bash]
+[source,text]
 ----
-buildah run ubi-working-container-1 -- dnf -y install httpd
-----
-
-== Enable Service
-
-The next thing to do is to use a systemctl to enable the service. The ubi-init provides full systemd service to the container.
-This will start up any of the services that are enabled. 
-
-. Enable the `httpd` service using `buildah run`
-
-+
-[source,bash]
-----
-buildah run ubi-working-container-1 -- systemctl enable httpd
+Pod Velocity = Rate of pod creation over time
 ----
 
-NOTE: The UBI standard image doesn't have systemd installed on it by default. The `ubi-init` container image does include systemd. Plan accordingly to which image you use to build applications.  
+If your organization deploys 50 new microservices per quarter, and each requires an average of 3 replicas with 200m CPU each, you need:
 
-== Explore Source Materials
-
-A GitHub repository has already been synchronized to `/home/devops/clumsy-bird/` This repository contains the configurations for your application.
-
-. Verify the repository is cloned inside the `/home/devops/` directory
-+
-[source,bash]
+[source,text]
 ----
-cd /home/devops/
+50 services × 3 replicas × 200m CPU = 30,000m CPU (30 cores) per quarter
 ----
 
-+
-[source,bash]
-----
-git clone https://github.com/ellisonleao/clumsy-bird
-----
-+
-NOTE: The output states that the software has already been checked out. 
-+
-. Explore the JavaScript contents, index files, and everything else that we need for this web-based JavaScript software.
-+
+This is far more accurate than linear CPU trending because it accounts for *workload growth patterns*.
+
+[IMPORTANT]
+====
+*The Formula*:
+
+```
+Quarterly Node Requirement = (Pod Velocity × Avg Replicas × Avg CPU Request) / Node Allocatable CPU
+```
+
+Example:
+- Pod Velocity: 50 new services/quarter
+- Avg Replicas: 3
+- Avg CPU Request: 200m (0.2 cores)
+- Node CPU: 8 cores allocatable
+
+```
+(50 × 3 × 0.2) / 8 = 30 / 8 = 3.75 nodes per quarter
+```
+
+Round up → *You need 4 new worker nodes every quarter.*
+====
+
+[#lab2]
+== Lab 2: The Pod Velocity Calculator & ACM Dashboard
+
+In this lab, you'll calculate pod velocity using PromQL, build forecasting formulas, and create a custom RHACM dashboard to visualize predictions across your fleet.
+
+=== Part 1: Access OpenShift Prometheus
+
+First, let's access the built-in Prometheus monitoring:
+
 [source,bash,role=execute]
 ----
-ls clumsy-bird
+oc get route -n openshift-monitoring prometheus-k8s -o jsonpath='{.spec.host}'
 ----
 
-== Add Source Materials to Container
-
-. Now that you have verified the source materials exist, you will put the software inside of my container image using the `buildah copy` command.
-+
-[source,bash]
+.Sample Output
+[source,textinfo]
 ----
-buildah copy ubi-working-container-1 clumsy-bird /var/www/html
+prometheus-k8s-openshift-monitoring.{cluster_domain}
 ----
 
-[#container]
-== Enable Container in Background
+[NOTE]
+====
+Open this URL in a new browser tab. You'll be prompted to log in with your OpenShift credentials. Click "Log in with OpenShift" and use your cluster admin token.
+====
 
-In the previous section of this lab, you ran the game natively through interactive mode. Because you are now building a web application you will need to run the container in the background and access it through a web address. 
+=== Part 2: Calculate 30-Day Pod Growth Rate
 
-. Execute `buildah config` to specify a port and initialize the container. 
+In the Prometheus UI, enter this PromQL query to calculate pod creation velocity:
 
-+
-[source,bash]
+[source,promql]
 ----
-buildah config --port 80 --cmd "/usr/sbin/init" ubi-working-container-1
-----
-
-NOTE: The command makes a configuration change to this container. I'm configuring this container to accept connections to its port 80. When the container starts up, it should run the init command, which, in this case, is going to be the Apache daemon right from earlier when I enabled it.
-
-== Commit Container and Deploy
-
-. Now that we have a container in a working configured state, it is time to make that permanent by committing it to a container image called `clumsy-bird`
-+
-[source,bash]
-----
-buildah commit ubi-working-container-1 clumsy-bird
+rate(kube_pod_created[30d])
 ----
 
-. Verify that the image was created with `podman`
-+
-[source,bash]
+This shows the rate of pod creation over the last 30 days.
+
+[TIP]
+====
+*Understanding the Query*:
+
+* `kube_pod_created` - Timestamp when each pod was created
+* `rate([30d])` - Calculate the per-second rate over 30 days
+* Result is in "pods per second" - we'll convert to "pods per month"
+====
+
+Now let's get the total count of new pods in the last 30 days:
+
+[source,promql]
 ----
-podman images
-----
-+
-. Run the container Now it's time to run the container. 
-+
-[source,bash]
-----
-podman run -d -p 8500:80 clumsy-bird
+increase(kube_pod_created[30d])
 ----
 
-== Verify Application
+.Sample Output
+[source,textinfo]
+----
+{namespace="capacity-workshop"} 145
+{namespace="openshift-monitoring"} 23
+{namespace="openshift-gitops"} 12
+...
+----
 
-Verify that the application is running by navigating to
+[WARNING]
+====
+This includes *all* pod creations, including restarts and scaling events. For accurate forecasting, we need to filter for *new Deployments*, not just pod churn.
+====
 
-http://bastion.{guid}.example.opentlc.com:8500
+=== Part 3: Track New Deployment Velocity
 
+A better metric is tracking *new Deployments* rather than individual pods:
+
+[source,promql]
+----
+count(kube_deployment_created{namespace="{namespace}"})
+OR
+count(kube_deployment_created{namespace="{namespace}"} offset 30d)
+----
+
+This compares current deployments to 30 days ago.
+
+Now let's calculate the deployment growth rate:
+
+[source,promql]
+----
+(
+  count(kube_deployment_spec_replicas{namespace="{namespace}"})
+  -
+  count(kube_deployment_spec_replicas{namespace="{namespace}"} offset 30d)
+) / 30
+----
+
+.Sample Output
+[source,textinfo]
+----
+Value: 1.2
+----
+
+This means you're adding approximately *1.2 new deployments per day* in the `{namespace}` namespace.
+
+=== Part 4: Calculate Average Resource Requests
+
+Now we need to know the average CPU/Memory request per deployment:
+
+[source,promql]
+----
+avg(
+  kube_pod_container_resource_requests{resource="cpu", namespace="{namespace}"}
+)
+----
+
+.Sample Output
+[source,textinfo]
+----
+Value: 0.15 (150m CPU average per container)
+----
+
+Similarly for memory:
+
+[source,promql]
+----
+avg(
+  kube_pod_container_resource_requests{resource="memory", namespace="{namespace}"}
+) / 1024 / 1024 / 1024
+----
+
+.Sample Output
+[source,textinfo]
+----
+Value: 0.25 (256Mi average per container)
+----
+
+=== Part 5: Build the Forecasting Formula
+
+Now combine these metrics into a forecasting dashboard panel. Create a new query that projects node requirements for the next quarter:
+
+[source,promql]
+----
+# Pod Velocity (new deployments per day)
+scalar(
+  (count(kube_deployment_spec_replicas{namespace="{namespace}"})
+   - count(kube_deployment_spec_replicas{namespace="{namespace}"} offset 30d)) / 30
+)
+*
+# Days in quarter
+90
+*
+# Average replicas per deployment
+scalar(avg(kube_deployment_spec_replicas{namespace="{namespace}"}))
+*
+# Average CPU request per pod
+scalar(avg(kube_pod_container_resource_requests{resource="cpu", namespace="{namespace}"}))
+/
+# Node allocatable CPU (assuming 8 core nodes)
+8
+----
+
+[IMPORTANT]
+====
+*Breaking Down the Formula*:
+
+1. *Pod Velocity*: `(current deploys - deploys 30d ago) / 30` = deployments/day
+2. *Quarterly Growth*: velocity × 90 days
+3. *Total Pods*: quarterly growth × avg replicas
+4. *Total CPU Needed*: total pods × avg CPU request
+5. *Nodes Required*: total CPU / node CPU capacity
+
+*Result*: Number of nodes you'll need to add this quarter.
+====
+
+=== Part 6: Transition to RHACM Grafana
+
+Now that you have the PromQL formula, let's build it into a centralized RHACM dashboard that works across multiple clusters.
+
+Access the RHACM Grafana instance:
+
+[source,bash,role=execute]
+----
+echo "RHACM Grafana: {grafana_url}"
+----
+
+Open this URL in a new tab and log in with your OpenShift credentials.
+
+=== Part 7: Create Pod Velocity Forecast Panel
+
+In Grafana:
+
+1. Click "+ Create" → "Dashboard"
+2. Click "Add visualization"
+3. Select "Prometheus" as the data source
+4. Enter this query:
+
+[source,promql]
+----
+# Simplified version for multi-cluster
+sum(rate(kube_pod_created[30d])) by (cluster) * 2592000
+----
+
+This calculates monthly pod creation rate across all clusters.
+
+5. Set the panel title: *"Pod Velocity Forecast - Monthly Growth"*
+6. Change visualization type to *"Stat"*
+7. Set unit to *"pods/month"*
+8. Click "Apply"
+
+=== Part 8: Add Node Requirement Projection
+
+Add a second panel to show projected node requirements:
+
+1. Click "Add panel" → "Add visualization"
+2. Enter this query:
+
+[source,promql]
+----
+# Project quarterly node requirements
+ceil(
+  (
+    sum(rate(kube_pod_created[30d])) by (cluster) * 7776000  # 90 days in seconds
+    *
+    scalar(avg(kube_pod_container_resource_requests{resource="cpu"}))
+  ) / 8  # Assuming 8-core nodes
+)
+----
+
+3. Set panel title: *"Projected Nodes Needed (Next Quarter)"*
+4. Visualization: *"Gauge"*
+5. Set thresholds:
+   - Green: 0-5 nodes
+   - Yellow: 5-10 nodes
+   - Red: 10+ nodes
+
+6. Click "Apply"
+
+=== Part 9: Validate the Forecast
+
+Let's test our forecast against actual data. Run this command to count current pods:
+
+[source,bash,role=execute]
+----
+oc get pods -n {namespace} --no-headers | wc -l
+----
+
+Now check what the forecast predicted 30 days ago vs reality:
+
+[source,bash,role=execute]
+----
+echo "Current pod count: $(oc get pods -n {namespace} --no-headers | wc -l)"
+echo ""
+echo "Forecast predicted (based on 30-day velocity):"
+echo "This would require manual calculation from historical data"
+----
+
+[TIP]
+====
+*Facilitator Discussion Point*:
+
+In production, you'd store daily snapshots of these metrics in a time-series database (Thanos/Prometheus long-term storage) to validate forecast accuracy over time.
+
+*Accuracy improves with*:
+
+* Longer historical data (90 days > 30 days)
+* Seasonal adjustment (Black Friday, tax season, etc.)
+* Deployment pattern clustering (some teams deploy weekly, others quarterly)
+====
+
+== Lab 2 Summary: Your Forecasting Model
+
+You've now built:
+
+✅ Pod Velocity calculation using PromQL
+✅ Average resource request metrics
+✅ Quarterly node requirement projection formula
+✅ Custom RHACM Grafana dashboard for fleet-wide visibility
+✅ Understanding of why Pod Velocity beats linear CPU trending
+
+=== Real-World Application
+
+Take this model back to your organization:
+
+1. *Capture your deployment cadence* - How many new services per quarter?
+2. *Measure average resource requests* - What's your "standard microservice footprint"?
+3. *Calculate node runway* - When will you run out of capacity?
+4. *Build forecasting into your change approval process* - Every new service deployment should update the forecast
+
+[IMPORTANT]
+====
+*The Forecasting Pitfall*:
+
+Forecasting is only as good as your *resource requests*. If developers over-request by 10x, your forecast will tell you to buy 10x more hardware than you actually need.
+
+This is why Module 3 (Developer Track - Right-Sizing) is critical. You must fix request accuracy BEFORE forecasting, or you'll forecast waste.
+====
+
+== Key Takeaways
+
+* *Pod Velocity (deployments/time) is more predictive than linear CPU trending for microservices*
+* *PromQL enables custom forecasting models tailored to your deployment patterns*
+* *RHACM provides fleet-wide capacity visibility across multiple clusters*
+* *Forecasting accuracy depends on accurate resource requests* (Module 3 fixes this)
+
+== Next Steps
+
+In xref:module-03.adoc[Module 3: Developer Track - The "Zero Request" Myth], we'll tackle the root cause of forecasting inaccuracy: incorrect or missing resource requests. You'll learn about QoS classes, debug throttling, and right-size workloads using historical Prometheus data.
+
+[NOTE]
+====
+*Pre-Module 3 Setup*:
+
+We've pre-deployed sample applications in `{namespace}` with intentionally broken resource configurations. These will be your test subjects for debugging OOMKilled events and CPU throttling in the next module.
+====

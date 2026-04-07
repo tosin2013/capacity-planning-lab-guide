@@ -1,0 +1,795 @@
+= Module 5: Fleet Observability with RHACM
+
+_Duration: 60 minutes_
+
+[#objectives]
+== Learning Objectives
+
+By the end of this module, you will be able to:
+
+* Enable Multi-Cluster Observability in Red Hat Advanced Cluster Management (RHACM)
+* Customize metric allowlists to reduce storage costs while maintaining capacity visibility
+* Build custom Grafana dashboards that aggregate capacity metrics across multiple clusters
+* Implement showback/chargeback reporting using Prometheus federation
+
+[#rhacm-observability]
+== Understanding RHACM Multi-Cluster Observability
+
+Red Hat Advanced Cluster Management provides a centralized observability platform for monitoring dozens or hundreds of OpenShift clusters from a single pane of glass.
+
+=== The Architecture
+
+RHACM Observability consists of:
+
+[cols="2,3,3",options="header"]
+|===
+|Component |Purpose |Location
+
+|*Thanos*
+|Long-term metric storage and querying
+|Hub cluster
+
+|*Grafana*
+|Dashboard visualization
+|Hub cluster
+
+|*Prometheus*
+|Metric collection per cluster
+|Each managed cluster
+
+|*metrics-collector*
+|Forwards metrics from managed → hub
+|Each managed cluster
+
+|*observability-alertmanager*
+|Centralized alerting
+|Hub cluster
+|===
+
+[IMPORTANT]
+====
+*The Data Flow*:
+
+```
+Managed Cluster 1 (Prometheus) ──┐
+                                  │
+Managed Cluster 2 (Prometheus) ──┼──→ Thanos (Hub) ──→ Grafana (Hub)
+                                  │
+Managed Cluster 3 (Prometheus) ──┘
+```
+
+*Key Benefits*:
+
+1. *Unified Query Language*: Use PromQL to query metrics across all clusters simultaneously
+2. *Cost Efficiency*: Managed clusters only forward a subset of metrics (configurable via allowlists)
+3. *Historical Analysis*: Thanos stores metrics for 30+ days (vs Prometheus' 15 days)
+4. *Cross-Cluster Correlation*: Compare capacity trends across dev/staging/prod environments
+====
+
+=== The Default Metrics Problem
+
+By default, RHACM Observability collects *all* Prometheus metrics from managed clusters. For a cluster with 1000 pods, this can be:
+
+[source,text]
+----
+Estimated metric volume per cluster:
+- 500,000 time series (pods × metrics per pod)
+- 2 samples/min per time series
+- 30-day retention
+
+Total: 500K × 2 × 60 × 24 × 30 = 43 billion samples
+Storage: ~500GB per cluster per month (uncompressed)
+----
+
+[WARNING]
+====
+*The Observability Cost Explosion*:
+
+If you manage 20 clusters and collect all metrics:
+
+```
+20 clusters × 500GB/month = 10TB/month observability storage
+```
+
+*Most of these metrics are useless for capacity planning* (detailed pod network stats, individual container CPU usage by core, etc.).
+
+*Solution*: Use metric allowlists to forward only the 50-100 metrics you actually need for capacity dashboards.
+====
+
+=== The Capacity Metric Allowlist
+
+For capacity planning, you only need:
+
+[cols="2,3",options="header"]
+|===
+|Metric Family |Example Metrics
+
+|*Node Capacity*
+|`kube_node_status_allocatable`, `node_memory_MemTotal_bytes`
+
+|*Pod Requests*
+|`kube_pod_container_resource_requests`
+
+|*Actual Usage*
+|`container_cpu_usage_seconds_total`, `container_memory_working_set_bytes`
+
+|*etcd Health*
+|`etcd_mvcc_db_total_size_in_bytes`, `etcd_server_has_leader`
+
+|*Deployment Scale*
+|`kube_deployment_spec_replicas`, `kube_deployment_status_replicas_available`
+
+|*HPA Metrics*
+|`kube_horizontalpodautoscaler_status_current_replicas`
+|===
+
+[TIP]
+====
+*Estimated Storage Reduction*:
+
+* Default (all metrics): 500GB/cluster/month
+* Capacity-focused allowlist: 25GB/cluster/month
+
+*Savings*: 95% reduction in observability storage costs!
+====
+
+== Why Multi-Cluster Observability Matters for Capacity
+
+Consider this real-world scenario:
+
+[source,text]
+----
+Your organization has:
+- 5 production clusters (US-East, US-West, EU, APAC, Edge)
+- 3 staging clusters
+- 10 dev clusters
+
+Total: 18 clusters
+
+Question: "How many worker nodes do we need to add next quarter across all environments?"
+----
+
+*Without RHACM Observability*:
+* Log into 18 separate Prometheus instances
+* Run the Pod Velocity query 18 times
+* Export to Excel, manually aggregate
+* Miss clusters you forgot about
+
+*With RHACM Observability*:
+* Single PromQL query: `sum by (cluster) (rate(kube_pod_created[30d]))`
+* One Grafana dashboard shows all 18 clusters
+* Automated alerting when any cluster approaches capacity
+
+[IMPORTANT]
+====
+*The Fleet Mindset Shift*:
+
+Capacity planning at scale requires thinking about clusters as *cattle, not pets*:
+
+* You can't manually SSH into each cluster
+* You need automated discovery of new clusters
+* Standardized dashboards must work for all clusters
+* Capacity policies should be fleet-wide, with cluster-specific overrides
+
+RHACM Observability is the foundation for this fleet-centric approach.
+====
+
+[#lab5]
+== Lab 5: The God's-Eye Dashboard
+
+In this hands-on lab, you'll enable RHACM Observability, customize the metric allowlist to reduce costs, and build a multi-cluster capacity dashboard.
+
+=== Part 1: Verify RHACM Observability is Enabled
+
+First, check if observability is already enabled on your hub cluster:
+
+[source,bash,role=execute]
+----
+oc get multiclusterobservability -A
+----
+
+.Sample Output (Observability Enabled)
+[source,textinfo]
+----
+NAMESPACE                              NAME              STATUS   AGE
+open-cluster-management-observability  observability     Ready    5d
+----
+
+If you see `Ready` status, observability is enabled. If not, you'll see:
+
+.Sample Output (Observability Not Enabled)
+[source,textinfo]
+----
+No resources found
+----
+
+[NOTE]
+====
+*For This Workshop*:
+
+RHACM Observability has been pre-configured by the AgnosticD workload. If you're deploying this in your own environment, you would need to:
+
+1. Create an S3-compatible object storage bucket (AWS S3, Noobaa, MinIO)
+2. Create a `thanos-object-storage` Secret with bucket credentials
+3. Create a `MultiClusterObservability` custom resource
+
+Full instructions: https://access.redhat.com/documentation/en-us/red_hat_advanced_cluster_management_for_kubernetes/2.9/html/observability/observability-enable
+====
+
+Check the observability components:
+
+[source,bash,role=execute]
+----
+oc get pods -n open-cluster-management-observability
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                                                  READY   STATUS    RESTARTS   AGE
+observability-alertmanager-0                          3/3     Running   0          5d
+observability-alertmanager-1                          3/3     Running   0          5d
+observability-grafana-7f9d8c8b5d-4xj2p               3/3     Running   0          5d
+observability-grafana-7f9d8c8b5d-9lkz8               3/3     Running   0          5d
+observability-observatorium-api-66c7d9d5fb-k5t7l     1/1     Running   0          5d
+observability-thanos-compact-0                        1/1     Running   0          5d
+observability-thanos-query-7c9d4f8b6d-p2x5k          1/1     Running   0          5d
+observability-thanos-receive-default-0                1/1     Running   0          5d
+observability-thanos-store-shard-0-0                  1/1     Running   0          5d
+----
+
+[TIP]
+====
+*Key Components Explained*:
+
+* `thanos-receive`: Ingests metrics forwarded from managed clusters
+* `thanos-query`: Provides the PromQL query interface (used by Grafana)
+* `thanos-store`: Queries long-term storage (S3)
+* `thanos-compact`: Compresses and downsamples old metrics (hourly → daily → weekly)
+* `grafana`: Dashboard UI
+====
+
+=== Part 2: Access the RHACM Grafana Dashboard
+
+Get the Grafana route:
+
+[source,bash,role=execute]
+----
+echo "RHACM Grafana: {grafana_url}"
+----
+
+Open this URL in a new browser tab. You'll be prompted to log in with your OpenShift credentials.
+
+Once logged in, you'll see the default RHACM dashboards:
+
+* *ACM - Clusters Overview*: Health status of all managed clusters
+* *ACM - Kubernetes / Compute Resources / Cluster*: CPU/Memory by cluster
+* *ACM - Kubernetes / Compute Resources / Namespace*: Resource usage by namespace
+
+[NOTE]
+====
+*Facilitator Demo Opportunity*:
+
+Walk through the "ACM - Kubernetes / Compute Resources / Cluster" dashboard and point out:
+
+1. The "Cluster" dropdown at the top (shows all managed clusters)
+2. CPU/Memory usage graphs (actual vs requested)
+3. Pod count over time
+4. Network I/O
+
+*Question for class*: "How would you use this dashboard to identify over-provisioned clusters?"
+
+*Answer*: Look for clusters with high "Requested" but low "Usage" - those are wasting capacity.
+====
+
+=== Part 3: Customize the Metric Allowlist
+
+Now let's reduce observability storage costs by only collecting metrics we need for capacity planning.
+
+Check the current metric allowlist:
+
+[source,bash,role=execute]
+----
+oc get configmap observability-metrics-custom-allowlist -n open-cluster-management-observability -o yaml
+----
+
+.Sample Output
+[source,yaml]
+----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-metrics-custom-allowlist
+  namespace: open-cluster-management-observability
+data:
+  metrics_list.yaml: |
+    names:
+      - :node_memory_MemAvailable_bytes:sum
+      - cluster:usage:resources:sum
+      - cluster_infrastructure_provider
+      - cluster_version
+    matches:
+      - __name__="up"
+----
+
+[IMPORTANT]
+====
+*How Allowlists Work*:
+
+RHACM supports two types of metric filters:
+
+1. *names*: Exact metric name matches (e.g., `cluster_version`)
+2. *matches*: Regex patterns (e.g., `__name__="container_.*"` matches all container metrics)
+
+*If the ConfigMap exists*, only the metrics in the allowlist are forwarded. *If it doesn't exist*, all metrics are forwarded (expensive!).
+====
+
+Let's add capacity-specific metrics to the allowlist:
+
+[source,bash,role=execute]
+----
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-metrics-custom-allowlist
+  namespace: open-cluster-management-observability
+data:
+  metrics_list.yaml: |
+    names:
+      # Cluster metadata
+      - cluster_version
+      - cluster_infrastructure_provider
+
+      # Node capacity metrics
+      - kube_node_status_allocatable
+      - kube_node_status_capacity
+      - node_memory_MemTotal_bytes
+
+      # Pod resource requests (for capacity planning)
+      - kube_pod_container_resource_requests
+      - kube_pod_container_resource_limits
+
+      # Deployment scale
+      - kube_deployment_spec_replicas
+      - kube_deployment_status_replicas_available
+      - kube_deployment_created
+
+      # HPA metrics
+      - kube_horizontalpodautoscaler_spec_target_metric
+      - kube_horizontalpodautoscaler_status_current_replicas
+      - kube_horizontalpodautoscaler_status_desired_replicas
+
+      # etcd health
+      - etcd_mvcc_db_total_size_in_bytes
+      - etcd_server_has_leader
+
+      # Actual resource usage (for right-sizing analysis)
+      - container_cpu_usage_seconds_total
+      - container_memory_working_set_bytes
+
+      # Node resource usage
+      - node_cpu_seconds_total
+      - node_memory_MemAvailable_bytes
+
+    matches:
+      # Include all "up" metrics (cluster health)
+      - __name__="up"
+
+      # Include all kube-state-metrics pod metrics
+      - __name__=~"kube_pod_.*"
+
+      # Include CPU throttling metrics (Module 3)
+      - __name__="container_cpu_cfs_throttled_seconds_total"
+EOF
+----
+
+.Sample Output
+[source,textinfo]
+----
+configmap/observability-metrics-custom-allowlist configured
+----
+
+[WARNING]
+====
+*Allowlist Changes Take Effect Gradually*:
+
+After updating the ConfigMap:
+
+1. The `metrics-collector-deployment` on each managed cluster detects the change (~2 minutes)
+2. It restarts with the new allowlist (~1 minute)
+3. New metrics start flowing to Thanos (~30 seconds)
+4. Old metrics (not in the allowlist) stop being collected immediately
+
+*Total delay*: ~3-4 minutes before dashboards reflect the change.
+
+*To force immediate reload*:
+```bash
+oc rollout restart deployment metrics-collector-deployment -n open-cluster-management-addon-observability
+```
+(Run this on each managed cluster, or wait for automatic detection.)
+====
+
+=== Part 4: Build a Multi-Cluster Capacity Dashboard
+
+Now let's create a custom Grafana dashboard that shows capacity metrics across all clusters.
+
+In the RHACM Grafana UI:
+
+1. Click "+" → "Create Dashboard"
+2. Click "Add new panel"
+
+==== Panel 1: Pod Count by Cluster
+
+Set the following:
+
+* *Panel Title*: "Total Pods by Cluster"
+* *Visualization*: Bar gauge
+* *Query*:
+
+[source,promql]
+----
+sum by (cluster) (kube_pod_info)
+----
+
+* *Legend*: `{{cluster}}`
+* *Unit*: "short" (pod count)
+* *Thresholds*:
+  - Green: 0-5000
+  - Yellow: 5000-8000
+  - Red: 8000+ (approaching etcd limit from Module 4)
+
+Click "Apply" to save the panel.
+
+==== Panel 2: CPU Request vs Usage (Fleet-Wide)
+
+Add a new panel with:
+
+* *Panel Title*: "CPU: Requested vs Used (All Clusters)"
+* *Visualization*: Time series
+* *Query A* (Requested):
+
+[source,promql]
+----
+sum(kube_pod_container_resource_requests{resource="cpu"})
+----
+
+* *Query B* (Used):
+
+[source,promql]
+----
+sum(rate(container_cpu_usage_seconds_total{container!=""}[5m]))
+----
+
+* *Legend*:
+  - Query A: "Requested CPU"
+  - Query B: "Actual CPU Usage"
+* *Unit*: "cores"
+
+Click "Apply".
+
+==== Panel 3: Memory Request vs Usage (Fleet-Wide)
+
+Add a new panel with:
+
+* *Panel Title*: "Memory: Requested vs Used (All Clusters)"
+* *Visualization*: Time series
+* *Query A* (Requested):
+
+[source,promql]
+----
+sum(kube_pod_container_resource_requests{resource="memory"})
+----
+
+* *Query B* (Used):
+
+[source,promql]
+----
+sum(container_memory_working_set_bytes{container!=""})
+----
+
+* *Legend*:
+  - Query A: "Requested Memory"
+  - Query B: "Actual Memory Usage"
+* *Unit*: "bytes" (Grafana will auto-format to GB)
+
+Click "Apply".
+
+==== Panel 4: Node Runway (Days Until Full)
+
+Add a new panel with:
+
+* *Panel Title*: "Capacity Runway by Cluster (Days)"
+* *Visualization*: Table
+* *Query*:
+
+[source,promql]
+----
+# Days until CPU capacity is exhausted based on 30-day growth rate
+(
+  sum by (cluster) (kube_node_status_allocatable{resource="cpu"})
+  -
+  sum by (cluster) (kube_pod_container_resource_requests{resource="cpu"})
+)
+/
+(
+  sum by (cluster) (increase(kube_pod_container_resource_requests{resource="cpu"}[30d]) / 30)
+)
+----
+
+* *Legend*: `{{cluster}}`
+* *Unit*: "days"
+* *Thresholds*:
+  - Red: <30 days
+  - Yellow: 30-90 days
+  - Green: >90 days
+
+Click "Apply".
+
+[TIP]
+====
+*Understanding the Runway Query*:
+
+This query calculates:
+
+```
+(Available Capacity - Current Usage) / Growth Rate = Days Until Full
+```
+
+Example:
+* Available CPU: 100 cores
+* Current requests: 60 cores
+* 30-day growth: +5 cores
+
+```
+(100 - 60) / (5/30) = 40 / 0.167 = 240 days runway
+```
+
+*Caveats*:
+* Assumes linear growth (Module 2 explains why Pod Velocity is better)
+* Doesn't account for seasonal spikes
+* Requires at least 30 days of historical data
+
+*Use this as a quick health check, not a replacement for detailed forecasting.*
+====
+
+==== Panel 5: Pod Density by Cluster
+
+Add a new panel with:
+
+* *Panel Title*: "Average Pod Density (pods/node)"
+* *Visualization*: Stat
+* *Query*:
+
+[source,promql]
+----
+sum by (cluster) (kube_pod_info) / sum by (cluster) (kube_node_info{node_role_kubernetes_io_worker=""})
+----
+
+* *Legend*: `{{cluster}}`
+* *Unit*: "short"
+* *Thresholds*:
+  - Green: 0-150 (healthy utilization)
+  - Yellow: 150-200 (approaching maxPods defaults)
+  - Red: 200+ (need to tune maxPods or add nodes)
+
+Click "Apply".
+
+==== Panel 6: etcd Database Size by Cluster
+
+Add a new panel with:
+
+* *Panel Title*: "etcd Database Size (MB)"
+* *Visualization*: Bar gauge (horizontal)
+* *Query*:
+
+[source,promql]
+----
+max by (cluster) (etcd_mvcc_db_total_size_in_bytes) / 1024 / 1024
+----
+
+* *Legend*: `{{cluster}}`
+* *Unit*: "MB"
+* *Thresholds*:
+  - Green: 0-4096 (0-4GB, healthy)
+  - Yellow: 4096-6144 (4-6GB, monitor)
+  - Red: 6144+ (6GB+, critical - approaching 8GB limit from Module 4)
+
+Click "Apply".
+
+=== Part 5: Save and Share the Dashboard
+
+1. Click the "Save dashboard" icon (floppy disk) at the top
+2. Name it: "Multi-Cluster Capacity Planning"
+3. Click "Save"
+
+Now your dashboard is available to all RHACM users!
+
+[NOTE]
+====
+*Exporting Dashboards for GitOps*:
+
+To version-control this dashboard:
+
+1. Click "Dashboard settings" (gear icon)
+2. Click "JSON Model"
+3. Copy the JSON
+4. Save to Git repository (e.g., `grafana-dashboards/capacity-planning.json`)
+5. Use a GitOps tool (ArgoCD) to deploy dashboards automatically to new RHACM instances
+
+This is how mature platform teams manage observability at scale.
+====
+
+=== Part 6: Validate Cross-Cluster Queries
+
+Let's verify the dashboard is pulling data from multiple clusters.
+
+Go back to the RHACM Grafana dashboard and navigate to "Explore" (compass icon in left sidebar).
+
+Run this query:
+
+[source,promql]
+----
+count by (cluster) (up{job="apiserver"})
+----
+
+.Sample Output
+[source,textinfo]
+----
+{cluster="local-cluster"}  3
+{cluster="prod-east"}      3
+{cluster="prod-west"}      3
+----
+
+[IMPORTANT]
+====
+*What This Proves*:
+
+The `cluster` label is automatically added to all metrics by RHACM Observability. This allows you to:
+
+* Query all clusters at once: `sum(kube_pod_info)`
+* Query a specific cluster: `sum(kube_pod_info{cluster="prod-east"})`
+* Group by cluster: `sum by (cluster) (kube_pod_info)`
+
+*This is the foundation for fleet-wide capacity planning.*
+
+If you only see `{cluster="local-cluster"}`, it means no managed clusters are registered with RHACM. In a production fleet, you'd see dozens of entries here.
+====
+
+=== Part 7: Showback/Chargeback Reporting
+
+One powerful use case for multi-cluster observability is *showback* - reporting resource consumption back to application teams or business units.
+
+Create a new dashboard panel:
+
+* *Panel Title*: "CPU Cost by Namespace (Top 10)"
+* *Visualization*: Pie chart
+* *Query*:
+
+[source,promql]
+----
+topk(10,
+  sum by (namespace) (
+    avg_over_time(kube_pod_container_resource_requests{resource="cpu"}[30d])
+  )
+)
+----
+
+* *Legend*: `{{namespace}}`
+* *Unit*: "cores"
+
+Now add a second panel:
+
+* *Panel Title*: "Monthly Cost by Namespace (Estimated)"
+* *Visualization*: Table
+* *Query*:
+
+[source,promql]
+----
+sum by (namespace, cluster) (
+  avg_over_time(kube_pod_container_resource_requests{resource="cpu"}[30d])
+) * 50  # Assume $50/core/month (adjust to your actual rate)
+----
+
+* *Legend*: Custom fields:
+  - `{{namespace}}` → "Namespace"
+  - `{{cluster}}` → "Cluster"
+  - Value → "Monthly Cost (USD)"
+* *Unit*: "currency (USD)"
+
+[TIP]
+====
+*How to Calculate Your Real Cost Per Core*:
+
+```
+Total Monthly Cloud Bill / Total Allocatable Cores = $/core/month
+```
+
+Example:
+* Monthly bill: $50,000
+* Total cores across all clusters: 1000 cores
+
+```
+$50,000 / 1000 = $50/core/month
+```
+
+*For on-premise bare-metal*:
+* Amortize hardware cost over 3 years
+* Add maintenance, power, cooling, data center rent
+* Divide by total core-years
+
+Example:
+* Server cost: $10,000 (64 cores)
+* 3-year lifespan
+* $2,000/year maintenance
+
+```
+($10,000 / 3 + $2,000) / 64 = $62/core/year = $5.17/core/month
+```
+
+*This is a simplified model.* For production FinOps, also factor in:
+* Storage costs (PVs)
+* Network egress costs
+* Load balancer costs
+* Overhead allocation (control plane, monitoring, logging)
+====
+
+== Lab 5 Summary: Your Multi-Cluster Observatory
+
+You've now built:
+
+✅ Verified RHACM Observability installation and components
+✅ Customized metric allowlist to reduce storage costs by 95%
+✅ Created a multi-cluster capacity dashboard with 6 panels
+✅ Implemented showback/chargeback reporting for namespace-level cost visibility
+✅ Validated cross-cluster PromQL queries using the `cluster` label
+
+=== Real-World Application
+
+Take this approach back to your organization:
+
+1. *Start with a minimal allowlist* (50-100 metrics) - you can always add more later
+2. *Build dashboards incrementally* - start with CPU/Memory, add pod count, then runway forecasts
+3. *Automate alerting* - create Prometheus AlertRules for "capacity runway < 30 days"
+4. *Version-control dashboards in Git* - treat observability as code
+5. *Review quarterly* - as workloads evolve, so should your dashboards
+
+[IMPORTANT]
+====
+*The Observability Maturity Model*:
+
+*Level 1 - Reactive*:
+* No centralized observability
+* Log into each cluster manually when problems occur
+
+*Level 2 - Monitoring*:
+* RHACM Observability enabled
+* Default dashboards viewed occasionally
+* Alerts fire when capacity is already exhausted
+
+*Level 3 - Proactive* (This Module):
+* Custom capacity dashboards
+* Metric allowlists optimized for cost
+* Runway forecasts updated weekly
+
+*Level 4 - Predictive* (Module 7):
+* Automated capacity forecasting based on Pod Velocity (Module 2)
+* Integration with financial planning systems
+* Self-service dashboards for app teams
+
+Most organizations are at Level 1-2. This module gets you to Level 3.
+====
+
+== Key Takeaways
+
+* *RHACM Observability provides a centralized PromQL query interface across all managed clusters*
+* *Metric allowlists reduce storage costs by 90%+ while preserving capacity planning visibility*
+* *The `cluster` label enables fleet-wide aggregation and per-cluster breakdowns*
+* *Grafana dashboards should focus on actionable metrics: runway, density, request vs usage gaps*
+* *Showback/chargeback requires calculating cost-per-core based on your actual infrastructure spend*
+
+== Next Steps
+
+In xref:module-06.adoc[Module 6: The Integration Challenge], you'll put everything together in a live simulation: a "Black Friday" traffic spike combined with an availability zone failure. You'll use the skills from Modules 1-5 to survive the chaos and keep the platform running.
+
+The observability dashboards from this module will be your "mission control" during the simulation.

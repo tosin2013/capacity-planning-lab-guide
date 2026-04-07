@@ -1,0 +1,473 @@
+= Module 3: Developer Track - The "Zero Request" Myth
+
+_Duration: 90 minutes_
+
+[#objectives]
+== Learning Objectives
+
+By the end of this module, you will be able to:
+
+* Debug "OOMKilled" events and CPU Throttling in production
+* Understand Kubernetes QoS Classes (Guaranteed, Burstable, BestEffort)
+* Implement Horizontal Pod Autoscaler (HPA) using right-sized metrics
+* Use historical Prometheus data to accurately size resource requests
+
+[#qos-classes]
+== Understanding Quality of Service (QoS)
+
+Many developers feel that requiring CPU/Memory requests is "hacky" or restrictive. This module proves why *Zero-Requests are dangerous*, especially on bare-metal or constrained environments.
+
+=== The Three QoS Classes
+
+Kubernetes assigns every pod to one of three QoS classes based on its resource configuration:
+
+[cols="2,3,3,2",options="header"]
+|===
+|QoS Class |Definition |Eviction Priority |Use Case
+
+|*Guaranteed*
+|`requests == limits` for all containers
+|*Lowest* (protected)
+|Critical production workloads
+
+|*Burstable*
+|Has requests, but `requests < limits`
+|*Medium*
+|Most production apps
+
+|*BestEffort*
+|*NO requests or limits*
+|*Highest* (first to die)
+|Dev/test only
+|===
+
+[WARNING]
+====
+*The Danger of BestEffort*:
+
+When a node runs out of memory, Kubernetes evicts pods in this order:
+
+1. BestEffort pods (no requests) - *killed first*
+2. Burstable pods exceeding requests
+3. Guaranteed pods (only if node is critically low)
+
+*If you deploy without requests, your pod is first in line for termination.*
+====
+
+=== How to Check Your Pod's QoS Class
+
+[source,bash,role=execute]
+----
+oc get pod -n {namespace} besteffort-app-* -o jsonpath='{.status.qosClass}'
+----
+
+.Sample Output
+[source,textinfo]
+----
+BestEffort
+----
+
+Now check a properly configured pod:
+
+[source,bash,role=execute]
+----
+oc get pod -n {namespace} guaranteed-app-* -o jsonpath='{.status.qosClass}'
+----
+
+.Sample Output
+[source,textinfo]
+----
+Guaranteed
+----
+
+[#lab3]
+== Lab 3: The Throttling Simulator
+
+In this hands-on lab, you'll experience the pain of zero-request deployments, then fix them using Prometheus historical data.
+
+=== Part 1: The Trap - Deploy Without Requests
+
+We've pre-deployed a load generator in your `{namespace}` namespace. Let's examine its configuration:
+
+[source,bash,role=execute]
+----
+oc get deployment load-generator -n {namespace} -o yaml | grep -A 10 "resources:"
+----
+
+.Sample Output
+[source,yaml]
+----
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+----
+
+This is a *Burstable* pod (requests < limits). Now let's look at the `besteffort-app`:
+
+[source,bash,role=execute]
+----
+oc get deployment besteffort-app -n {namespace} -o yaml | grep -A 5 "resources:"
+----
+
+.Sample Output
+[source,yaml]
+----
+resources: {}
+----
+
+*No requests, no limits* = *BestEffort* QoS class = *First to die under pressure*.
+
+=== Part 2: The Squeeze - Launch a Noisy Neighbor
+
+Now we'll create a "noisy neighbor" pod that consumes excessive CPU, forcing the scheduler to throttle other pods.
+
+First, check current CPU usage:
+
+[source,bash,role=execute]
+----
+oc adm top pods -n {namespace}
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                              CPU(cores)   MEMORY(bytes)
+besteffort-app-5598f76d5b-9jtz4   1m           12Mi
+load-generator-67567c576-hdvkj    102m         64Mi
+----
+
+Now scale up the `noisy-neighbor` deployment (currently at 0 replicas):
+
+[source,bash,role=execute]
+----
+oc scale deployment noisy-neighbor -n {namespace} --replicas=1
+----
+
+Wait 30 seconds for it to start consuming CPU, then check again:
+
+[source,bash,role=execute]
+----
+oc adm top pods -n {namespace}
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                              CPU(cores)   MEMORY(bytes)
+besteffort-app-5598f76d5b-9jtz4   1m           12Mi
+load-generator-67567c576-hdvkj    45m          64Mi   ← THROTTLED!
+noisy-neighbor-7d9c8b6f5d-xk2p9   980m         128Mi  ← Consuming everything
+----
+
+[IMPORTANT]
+====
+*What Just Happened?*
+
+The `load-generator` dropped from 102m CPU to 45m CPU (*56% performance degradation*) because:
+
+1. `noisy-neighbor` has no CPU limit
+2. It's consuming all available CPU on the node
+3. `load-generator` is being *CPU throttled* by the Linux kernel
+
+*Real-World Impact*: If this were a production API, response times would spike from 50ms to 500ms+, causing user-facing outages.
+====
+
+=== Part 3: Observe CPU Throttling Metrics
+
+Let's prove the throttling is happening using Prometheus:
+
+[source,bash,role=execute]
+----
+oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}'
+----
+
+Open the Prometheus UI and run this query:
+
+[source,promql]
+----
+rate(container_cpu_cfs_throttled_seconds_total{namespace="{namespace}", pod=~"load-generator.*"}[5m])
+----
+
+.Sample Output
+[source,textinfo]
+----
+Value: 0.42  (42% of CPU time is being throttled)
+----
+
+[WARNING]
+====
+*Throttling Explained*:
+
+When a pod exceeds its CPU limit (or when there's no limit but the node is saturated), the Linux CFS (Completely Fair Scheduler) throttles the container by pausing it periodically.
+
+* `0.0` = No throttling (healthy)
+* `0.5` = 50% of CPU time is paused (severe degradation)
+* `1.0` = 100% throttled (essentially frozen)
+
+*This is invisible to application developers* unless they're monitoring kernel metrics!
+====
+
+=== Part 4: The Fix - Right-Size Using Historical Data
+
+Now let's use Prometheus to determine what the `load-generator` *actually needs* based on historical usage.
+
+Run this query to find the 95th percentile CPU usage over the past 7 days:
+
+[source,promql]
+----
+quantile_over_time(0.95,
+  rate(container_cpu_usage_seconds_total{namespace="{namespace}", pod=~"load-generator.*"}[5m])[7d:5m]
+)
+----
+
+.Sample Output
+[source,textinfo]
+----
+Value: 0.15  (150m CPU at 95th percentile)
+----
+
+Similarly for memory (95th percentile):
+
+[source,promql]
+----
+quantile_over_time(0.95,
+  container_memory_working_set_bytes{namespace="{namespace}", pod=~"load-generator.*"}[7d:5m]
+) / 1024 / 1024
+----
+
+.Sample Output
+[source,textinfo]
+----
+Value: 96  (96Mi memory at 95th percentile)
+----
+
+[TIP]
+====
+*Right-Sizing Strategy*:
+
+* *CPU Request*: Set to 95th percentile usage (150m in this example)
+* *CPU Limit*: Set to 2-3x the request (300-450m) to allow bursts
+* *Memory Request*: Set to 95th percentile + 20% buffer (115Mi)
+* *Memory Limit*: Set to 95th percentile + 50% buffer (144Mi)
+
+*Why 95th percentile?*
+
+* 99th percentile includes rare spikes (over-provisioning)
+* 50th percentile (median) is too aggressive (frequent throttling)
+* 95th percentile balances efficiency with reliability
+====
+
+Now let's update the deployment:
+
+[source,bash,role=execute]
+----
+oc set resources deployment load-generator -n {namespace} \
+  --requests=cpu=150m,memory=115Mi \
+  --limits=cpu=400m,memory=192Mi
+----
+
+Verify the QoS class changed:
+
+[source,bash,role=execute]
+----
+sleep 10
+oc get pod -n {namespace} -l app=load-generator -o jsonpath='{.items[0].status.qosClass}'
+----
+
+.Sample Output
+[source,textinfo]
+----
+Burstable
+----
+
+[NOTE]
+====
+To achieve *Guaranteed* QoS, you need `requests == limits`:
+
+[source,bash]
+----
+oc set resources deployment critical-app -n {namespace} \
+  --requests=cpu=200m,memory=256Mi \
+  --limits=cpu=200m,memory=256Mi
+----
+
+This ensures:
+* Pod is protected from eviction
+* Pod gets exactly what it requested (no throttling)
+* Scheduler knows precise capacity requirements
+====
+
+=== Part 5: The Scale - Implement HPA
+
+Now that resources are right-sized, we can implement Horizontal Pod Autoscaling (HPA) safely.
+
+[IMPORTANT]
+====
+*Why HPA Requires Accurate Requests*:
+
+HPA scales based on *percentage of CPU request*. If your request is:
+
+* Too low: HPA triggers constantly (flapping)
+* Too high: HPA never triggers (waste)
+* Just right: HPA responds to real load changes
+
+*Formula*: `Target Utilization = (Current CPU / CPU Request) × 100%`
+====
+
+Create an HPA targeting 75% CPU utilization:
+
+[source,bash,role=execute]
+----
+oc autoscale deployment load-generator -n {namespace} \
+  --min=1 --max=5 --cpu-percent=75
+----
+
+Verify HPA was created:
+
+[source,bash,role=execute]
+----
+oc get hpa -n {namespace}
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME             REFERENCE                   TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+load-generator   Deployment/load-generator   32%/75%   1         5         1          10s
+----
+
+Now let's simulate a traffic spike by scaling the load:
+
+[source,bash,role=execute]
+----
+oc set env deployment/load-generator -n {namespace} TARGET_RPS=500
+----
+
+Wait 60 seconds and check HPA status:
+
+[source,bash,role=execute]
+----
+oc get hpa -n {namespace} load-generator
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME             REFERENCE                   TARGETS    MINPODS   MAXPODS   REPLICAS   AGE
+load-generator   Deployment/load-generator   142%/75%   1         5         3          2m
+----
+
+[TIP]
+====
+*HPA Scaling Decision*:
+
+```
+Current CPU: 142% of request (213m / 150m)
+Target: 75%
+Desired Replicas: ceil(1 × 142 / 75) = ceil(1.89) = 2
+```
+
+HPA scaled from 1 → 2 replicas to bring utilization down to target.
+
+After the second replica stabilizes:
+```
+Total CPU: 213m distributed across 2 pods = 106m per pod
+Utilization: 106m / 150m = 71% ✓ Within target
+```
+====
+
+=== Part 6: Debug OOMKilled Events
+
+Now let's intentionally trigger an Out-Of-Memory kill to see how to debug it.
+
+Check if there are any recent OOMKilled events:
+
+[source,bash,role=execute]
+----
+oc get events -n {namespace} --field-selector reason=OOMKilling --sort-by='.lastTimestamp' | tail -5
+----
+
+If there are no recent OOM events, let's check pod status for past kills:
+
+[source,bash,role=execute]
+----
+oc get pods -n {namespace} -o json | \
+  jq -r '.items[] | select(.status.containerStatuses[]?.lastState.terminated.reason == "OOMKilled") | .metadata.name'
+----
+
+To investigate an OOMKilled pod, check its last termination reason:
+
+[source,bash,role=execute]
+----
+oc get pod <pod-name> -n {namespace} -o jsonpath='{.status.containerStatuses[0].lastState.terminated}'
+----
+
+.Sample Output
+[source,json]
+----
+{
+  "exitCode": 137,
+  "reason": "OOMKilled",
+  "message": "Container exceeded its memory limit"
+}
+----
+
+[IMPORTANT]
+====
+*OOMKilled Troubleshooting Checklist*:
+
+1. *Check memory limit*: `oc get pod <pod> -o jsonpath='{.spec.containers[0].resources.limits.memory}'`
+2. *Check actual usage before kill*: Query Prometheus for `container_memory_working_set_bytes` max before termination
+3. *Increase memory limit* if usage legitimately exceeds limit
+4. *Investigate memory leak* if usage grows unbounded over time
+
+*Exit Code 137* always means OOMKilled (128 + 9 SIGKILL signal).
+====
+
+== Lab 3 Summary: Developer Best Practices
+
+You've now experienced:
+
+✅ QoS classes (Guaranteed, Burstable, BestEffort)
+✅ CPU throttling impact on application performance
+✅ Right-sizing requests using Prometheus 95th percentile
+✅ HPA configuration with accurate targets
+✅ OOMKilled debugging
+
+=== The Developer Social Contract
+
+[IMPORTANT]
+====
+*Resource Requests Are Not Restrictions*:
+
+Many developers resist setting requests because they feel like "quotas" or "limits." This module proves the opposite:
+
+* *Requests = Promise to Scheduler*: "I need this much to run"
+* *Limits = Safety Net*: "Don't let me consume more than this"
+* *No Requests = Russian Roulette*: "Kill me first when the node is full"
+
+*Accurate requests are a contract between you and the infrastructure team.* Without them:
+
+* The scheduler is blind (poor placement decisions)
+* Your pods are first to evict
+* HPA doesn't work correctly
+* Forecasting is impossible
+====
+
+== Key Takeaways
+
+* *BestEffort QoS (no requests) = First to die under node pressure*
+* *CPU throttling is invisible to apps but destroys performance*
+* *Use Prometheus 95th percentile for right-sizing, not guesswork*
+* *HPA requires accurate requests to scale correctly*
+* *OOMKilled = Exit Code 137, check memory limits vs actual usage*
+
+== Next Steps
+
+In xref:module-04.adoc[Module 4: Infrastructure Track - Fleet Architecture & Sizing], we shift to the platform engineer perspective. You'll learn node density math, etcd limits, and when to split clusters versus grow them.
+
+The skills from this module (accurate requests) directly feed into Module 4's capacity calculations. If requests are wrong, density calculations are wrong, and you'll buy the wrong amount of infrastructure.

@@ -1,20 +1,20 @@
 name: modules
-title: Default Title
+title: Strategic Capacity Planning & Forecasting for OpenShift at Scale
 version: master
 nav:
   - modules/ROOT/nav.adoc
 
 asciidoc:
   attributes:
-    # page-toclevels: -1               # <- This will remove the TOC that appear in the right sidebar at wider resolutions
-    lab_name: "I'm the lab_name var"
+    lab_name: "Strategic Capacity Planning & Forecasting for OpenShift at Scale"
     release-version: master
-    page-pagination: true # enables navigation at bottom of each instruction page.
-    my_var: "foo"
-    guid: my-guid
-    ssh_user: devops
-    ssh_password: devops
-    ssh_command: ssh someone@example.com
+    page-pagination: true
+    guid: test01
+    cluster_domain: apps.cluster-mks77.dynamic.redhatworkshops.io
+    openshift_console: https://console-openshift-console.apps.cluster-mks77.dynamic.redhatworkshops.io
+    rhacm_console: https://multicloud-console.apps.cluster-mks77.dynamic.redhatworkshops.io
+    grafana_url: https://grafana-open-cluster-management-observability.apps.cluster-mks77.dynamic.redhatworkshops.io
+    namespace: capacity-workshop
     page-links:
     - url: https://redhat.com
       text: Red Hat
