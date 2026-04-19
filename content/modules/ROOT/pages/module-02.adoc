@@ -322,9 +322,47 @@ system:admin
 This three-step pattern — save context, login to hub, switch back — is used again in Module 5 when you import your student cluster into RHACM.
 ====
 
-=== Part 5: View the Dashboard
+=== Part 5: Log In to Grafana and View the Dashboard
 
-Open the URL printed by the script in a new browser tab. You will see three panels:
+==== Step 5a — Open the dashboard URL
+
+Copy the URL printed at the end of the script output and paste it into a new browser tab.
+It looks like:
+
+[source,text,subs="+attributes"]
+----
+{hub_grafana_url}/d/pod-velocity-.../module-2-pod-velocity-forecast
+----
+
+[TIP]
+====
+You can also navigate directly to `{hub_grafana_url}` and browse to *Dashboards → General → Module 2 — Pod Velocity Forecast*.
+====
+
+==== Step 5b — Authenticate with OpenShift
+
+RHACM Grafana uses OpenShift OAuth — there is no separate Grafana username or password to set up. Follow these steps on the login page:
+
+. Click *Log in with OpenShift*.
+. On the OpenShift login page, choose the *workshop-students* identity provider.
+. Enter your hub credentials:
++
+[cols="1,2",options="header"]
+|===
+|Field |Value
+|Username |`{hub_username}`
+|Password |`{hub_password}`
+|===
+. Click *Log in* — you are redirected back to Grafana automatically.
+
+[NOTE]
+====
+The identity provider is named *workshop-students* because the hub cluster was configured with an htpasswd provider for all student accounts. If you see other providers (e.g. `htpasswd` or `kube:admin`) you can ignore them — only *workshop-students* has your student account.
+====
+
+==== Step 5c — Explore the dashboard panels
+
+Once logged in you will see three panels:
 
 1. *Pod Velocity Forecast — Monthly Growth* (Stat panels, one per cluster) — how many pods are being created each month across your fleet
 2. *Projected Nodes Needed (Next Quarter)* (Gauge panels, one per cluster) — the computed node requirement with green/yellow/red thresholds
@@ -338,7 +376,7 @@ Open the URL printed by the script in a new browser tab. You will see three pane
 * *Yellow (5-10)* means you should start a procurement conversation this quarter
 * *Red (10+)* means you need nodes sooner — initiate an emergency capacity request
 
-In your own environment, replace the hard-coded 8-core assumption by setting `NODE_CPU` to your actual worker node allocatable CPU before running the dashboard script. This makes the thresholds meaningful for your specific infrastructure.
+Because `viewers_can_edit` is enabled in this Grafana instance, you can also click the panel title → *Edit* to inspect or modify the PromQL query behind any panel — useful for adapting dashboards to your own environment.
 ====
 
 === Part 6: Validate the Forecast
