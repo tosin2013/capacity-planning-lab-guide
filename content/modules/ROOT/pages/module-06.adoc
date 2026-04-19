@@ -56,6 +56,14 @@ Keep the platform online for the next 60 minutes using the capacity planning ski
 [#lab6]
 == Lab 6: Black Friday Simulation
 
+[NOTE]
+====
+All terminal commands in this lab run on your *student cluster*.
+If your SSH session ended, reconnect before continuing:
+
+ ssh lab-user@{student-cluster-bastion}
+====
+
 === Pre-Simulation Setup
 
 Before we start the chaos, let's establish baseline metrics.

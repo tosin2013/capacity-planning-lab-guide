@@ -261,6 +261,14 @@ You now forecast per-cluster, then aggregate at the hub level. Module 5 covers t
 [#lab4]
 == Lab 4: The Density Game
 
+[NOTE]
+====
+All terminal commands in this lab run on your *student cluster*.
+If your SSH session ended, reconnect before continuing:
+
+ ssh lab-user@{student-cluster-bastion}
+====
+
 In this hands-on lab, you'll modify the kubeletConfig to increase maxPods from 250 to 500, then observe the impact on node memory overhead and control plane performance during a mass-scheduling event.
 
 ifdef::user[]

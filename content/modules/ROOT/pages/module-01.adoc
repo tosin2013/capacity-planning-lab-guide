@@ -56,6 +56,14 @@ The gap between "Allocated" (what developers asked for) and "Consumed" (what har
 [#lab1]
 == Lab 1: The 90-Day Audit
 
+[NOTE]
+====
+All terminal commands in this lab run on your *student cluster*.
+If your SSH session ended, reconnect before continuing:
+
+ ssh lab-user@{student-cluster-bastion}
+====
+
 In this hands-on lab, you will audit the capacity baseline of your OpenShift cluster, comparing requested resources versus actual usage.
 
 === Step 1: Check Cluster Nodes

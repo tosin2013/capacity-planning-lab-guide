@@ -8,16 +8,43 @@ asciidoc:
   # NOTE: The attributes below contain cluster-specific values used by Showroom
   # deployments via RHDP. For public GitHub Pages, these are overridden in
   # github-site.yml with placeholder values to avoid exposing cluster URLs.
+  #
+  # Hub-Student topology: hub cluster Showroom injects student-cluster-* attributes
+  # per student via agnosticd_user_info data from the student cluster provisioning.
+  # Reference in AsciiDoc modules with {student-cluster-api} and {student-cluster-console}.
   attributes:
     lab_name: "Strategic Capacity Planning & Forecasting for OpenShift at Scale"
     release-version: master
     page-pagination: true
-    guid: test01
-    cluster_domain: apps.cluster-mks77.dynamic.redhatworkshops.io
-    openshift_console: https://console-openshift-console.apps.cluster-mks77.dynamic.redhatworkshops.io
-    rhacm_console: https://multicloud-console.apps.cluster-mks77.dynamic.redhatworkshops.io
-    grafana_url: https://grafana-open-cluster-management-observability.apps.cluster-mks77.dynamic.redhatworkshops.io
+
+    # Hub cluster identity (where Showroom runs)
+    guid: hub-capacity
+    cluster_domain: ""
+    openshift_console: ""
     namespace: capacity-workshop
+
+    # Student cluster attributes (injected per-student by Showroom post-provision wiring)
+    # These are empty here; agnosticd_user_info from student-compact-aws provisioning
+    # populates them via the hub Showroom configmap.
+    student-cluster-api: ""
+    student-cluster-console: ""
+    student-cluster-ingress-domain: ""
+    student-cluster-guid: ""
+    # SSH access — students connect here from the Showroom terminal on the hub
+    # Format: bastion.<guid>.<base_domain>  e.g. bastion.student-01.sandbox5388.opentlc.com
+    student-cluster-bastion: ""
+    # SSH password for lab-user on the student bastion (injected by Showroom)
+    student-cluster-password: ""
+
+    # Hub cluster URLs (RHACM and Grafana run on the hub — Module 5 "God's-Eye Dashboard")
+    # Populated from hub agnosticd_user_info after hub provisioning
+    hub_rhacm_console: ""    # https://multicloud-console.apps.hub.<guid>.<domain>
+    hub_rhacm_url: ""        # alias used in student-compact-aws.yml wiring
+    hub_grafana_url: ""      # https://grafana-open-cluster-management-observability.apps.hub.<guid>.<domain>
+    # Legacy / fallback — kept for backward compat with existing module references
+    rhacm_console: ""
+    grafana_url: ""
+
     page-links:
     - url: https://redhat.com
       text: Red Hat

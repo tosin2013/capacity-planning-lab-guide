@@ -92,51 +92,50 @@ endif::[]
 |{grafana_url}
 |===
 
-=== Verifying Your Environment
+=== Connecting to Your Student Cluster
 
-Use the embedded terminal to verify your workshop environment is ready:
+This workshop uses a *hub-student topology*: the lab guide (Showroom) runs on a central hub cluster, while your `oc` commands run on your own dedicated student cluster. The terminal on the right connects you to the hub — to reach your student cluster, SSH to its bastion host.
+
+[IMPORTANT]
+.Step 1 — SSH to your student cluster bastion
+====
+Run the following command in the terminal on the right to connect to your student cluster:
 
 [source,bash,subs="attributes+",role=execute]
 ----
-# Check your current cluster context
-oc whoami --show-server
-
-# Verify your namespace access
-oc get pods -n {namespace}
-
-# Check cluster nodes
-oc get nodes
+ssh lab-user@{student-cluster-bastion}
 ----
 
-ifdef::user[]
+When prompted, enter your SSH password from the credentials panel.
+====
+
+Once connected, verify your cluster access:
+
+[source,bash,subs="attributes+",role=execute]
+----
+# Confirm you are logged into the student cluster
+oc whoami --show-server
+
+# Check cluster nodes (expect 3 compact nodes)
+oc get nodes
+
+# Verify workshop namespace and sample apps
+oc get pods -n {namespace}
+----
+
 [TIP]
-.Multi-User Mode: Understanding Your SNO Cluster
+.Hub-Student Topology: What Runs Where
 ====
-In multi-user mode, you should see:
+* *This terminal* — runs on the hub cluster (Showroom). Use it to SSH to your student bastion and for browser links.
+* *Your student cluster* — `{student-cluster-bastion}` — runs all workshop sample apps, Prometheus, and simulation tools. All `oc` commands throughout the modules target this cluster.
+* *RHACM + Grafana* — run on the hub cluster and provide a fleet-wide view across all student clusters. You access them via browser (Quick Access Links above) during Module 5.
 
-* **One node** when running `oc get nodes` (Single Node OpenShift)
-* **Your dedicated namespace** `{namespace}` with workshop sample applications
-* **Cluster-admin permissions** - you can view all namespaces with `oc get projects`
+You should see after connecting:
 
-The terminal is pre-configured with your SNO cluster credentials. All `oc` commands execute on your dedicated cluster.
-
-**RHACM and Grafana** (accessed via Quick Access Links above) run on the **hub cluster** and provide unified observability across all student SNO clusters. When viewing Grafana dashboards in Module 5, you'll see metrics from multiple clusters - use the `cluster` label to filter to your SNO cluster.
+* *3 nodes* when running `oc get nodes` (compact 3-node cluster)
+* *Cluster-admin access* — you can view all namespaces with `oc get projects`
+* *Sample applications* running in the `{namespace}` namespace
 ====
-endif::[]
-
-ifndef::user[]
-[TIP]
-.Single-User Mode: Hub Cluster Access
-====
-In single-user mode, you should see:
-
-* **Multiple nodes** when running `oc get nodes` (hub cluster workers)
-* **Your dedicated namespace** `{namespace}` with workshop sample applications
-* **Namespace-scoped permissions** - you can only access resources in your namespace
-
-The terminal is pre-configured with hub cluster credentials. All `oc` commands execute within the `{namespace}` namespace.
-====
-endif::[]
 
 == Workshop Agenda
 
@@ -204,15 +203,17 @@ endif::[]
 
 This workshop uses:
 
-* *OpenShift Container Platform*: 4.14 - 4.19+
-* *Red Hat Advanced Cluster Management (RHACM)*: 2.14+
+* *OpenShift Container Platform*: 4.21+
+* *Red Hat Advanced Cluster Management (RHACM)*: 2.16+
 * *Monitoring*: Prometheus, Thanos, Alertmanager, Grafana
 
 == Getting Started
 
-When you're ready, proceed to xref:module-01.adoc[Module 1: The Planning Horizon] to begin your capacity planning journey.
+SSH to your student cluster bastion (see *Connecting to Your Student Cluster* above), then proceed to xref:module-01.adoc[Module 1: The Planning Horizon] to begin your capacity planning journey.
 
 [TIP]
 ====
-The terminal on the right side of this page is already logged into your OpenShift cluster. You can start running commands immediately!
+Before moving to Module 1, make sure you have an active SSH session to your student bastion:
+`ssh lab-user@{student-cluster-bastion}` +
+All `oc` commands throughout the workshop run inside this SSH session.
 ====

@@ -71,6 +71,14 @@ Round up → *You need 4 new worker nodes every quarter.*
 [#lab2]
 == Lab 2: The Pod Velocity Calculator & ACM Dashboard
 
+[NOTE]
+====
+All terminal commands in this lab run on your *student cluster*.
+If your SSH session ended, reconnect before continuing:
+
+ ssh lab-user@{student-cluster-bastion}
+====
+
 In this lab, you'll calculate pod velocity using PromQL, build forecasting formulas, and create a custom RHACM dashboard to visualize predictions across your fleet.
 
 === Part 1: Access OpenShift Prometheus

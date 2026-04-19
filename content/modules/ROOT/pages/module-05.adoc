@@ -177,6 +177,16 @@ RHACM Observability is the foundation for this fleet-centric approach.
 [#lab5]
 == Lab 5: The God's-Eye Dashboard
 
+[NOTE]
+====
+This lab has two access paths:
+
+* *Browser* — open the *RHACM Console* and *Grafana* links from the Quick Access panel on the introduction page. These run on the hub cluster.
+* *Terminal (student cluster)* — some steps apply `oc` commands to your student cluster to configure the RHACM Observability addon. Reconnect if needed:
+
+ ssh lab-user@{student-cluster-bastion}
+====
+
 In this hands-on lab, you'll enable RHACM Observability, customize the metric allowlist to reduce costs, and build a multi-cluster capacity dashboard.
 
 === Part 1: Verify RHACM Observability is Enabled
