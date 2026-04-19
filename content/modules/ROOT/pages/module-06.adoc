@@ -65,6 +65,8 @@ If your SSH session ended, reconnect before continuing:
 ----
 ssh lab-user@{student-cluster-bastion}
 ----
+
+SSH password: `{student-cluster-password}`
 ====
 
 === Pre-Simulation Setup

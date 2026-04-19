@@ -270,6 +270,8 @@ If your SSH session ended, reconnect before continuing:
 ----
 ssh lab-user@{student-cluster-bastion}
 ----
+
+SSH password: `{student-cluster-password}`
 ====
 
 In this hands-on lab, you'll modify the kubeletConfig to increase maxPods from 250 to 500, then observe the impact on node memory overhead and control plane performance during a mass-scheduling event.

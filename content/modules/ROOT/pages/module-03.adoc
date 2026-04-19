@@ -92,6 +92,8 @@ If your SSH session ended, reconnect before continuing:
 ----
 ssh lab-user@{student-cluster-bastion}
 ----
+
+SSH password: `{student-cluster-password}`
 ====
 
 In this hands-on lab, you'll experience the pain of zero-request deployments, then fix them using Prometheus historical data.

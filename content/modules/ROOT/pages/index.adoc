@@ -106,7 +106,7 @@ Run the following command in the terminal on the right to connect to your studen
 ssh lab-user@{student-cluster-bastion}
 ----
 
-When prompted, enter your SSH password from the credentials panel.
+SSH password: `{student-cluster-password}`
 ====
 
 Once connected, verify your cluster access:

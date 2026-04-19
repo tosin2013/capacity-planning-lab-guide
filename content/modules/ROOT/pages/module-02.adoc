@@ -80,6 +80,8 @@ If your SSH session ended, reconnect before continuing:
 ----
 ssh lab-user@{student-cluster-bastion}
 ----
+
+SSH password: `{student-cluster-password}`
 ====
 
 In this lab, you'll calculate pod velocity using PromQL, build forecasting formulas, and create a custom RHACM dashboard to visualize predictions across your fleet.
