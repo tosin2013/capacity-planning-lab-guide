@@ -41,6 +41,12 @@ asciidoc:
     hub_rhacm_console: ""    # https://multicloud-console.apps.hub.<guid>.<domain>
     hub_rhacm_url: ""        # alias used in student-compact-aws.yml wiring
     hub_grafana_url: ""      # https://grafana-open-cluster-management-observability.apps.hub.<guid>.<domain>
+
+    # Hub cluster login — students switch oc context here for Modules 2 (ACM dashboard) and 5 (RHACM import)
+    # Injected per-student by Showroom post-provision wiring from agnosticd_user_info
+    hub_api_url: ""          # https://api.hub.<guid>.<domain>:6443
+    hub_username: ""         # student-<student-guid>  (e.g. student-student-01)
+    hub_password: ""         # shared hub password (all students use same password)
     # Legacy / fallback — kept for backward compat with existing module references
     rhacm_console: ""
     grafana_url: ""

@@ -223,14 +223,43 @@ Compare the "Nodes needed" figure to the default (8-core assumption). Does a lar
 
 === Part 4: Create the ACM Grafana Dashboard
 
-Now push the forecasting panels into the RHACM Grafana instance running on the hub cluster. The script creates the dashboard via the Grafana HTTP API — no clicking required.
+Now push the forecasting panels into the RHACM Grafana instance running on the hub cluster. The script authenticates using an `oc` token from the hub cluster. You will switch your `oc` context to the hub, run the script, then switch back — a pattern you will reuse in xref:module-05.adoc[Module 5].
 
 [NOTE]
 ====
-The RHACM Grafana URL (`{hub_grafana_url}`) is injected into your Showroom terminal from the hub cluster provisioning. It is populated automatically when the hub cluster configures RHACM Observability.
+*Why switch context?*
 
-If `{hub_grafana_url}` is empty, RHACM Observability is not yet configured. This is covered in detail in xref:module-05.adoc[Module 5: Fleet Observability].
+RHACM Grafana runs on the *hub* cluster and validates your OpenShift identity via `oauth-proxy`. Your current `oc` session points at your *student* cluster, so its token won't work against the hub. Logging into the hub cluster sets the active context so `oc whoami -t` returns a hub token that the script uses automatically.
+
+`viewers_can_edit = true` is set in RHACM Grafana — even though your hub role is Viewer, you can fully create and edit dashboards.
 ====
+
+==== Step 4a — Save your student context and log into the hub
+
+[source,bash,subs="+attributes",role=execute]
+----
+STUDENT_CTX=$(oc config current-context)
+echo "Student context saved: $STUDENT_CTX"
+oc login {hub_api_url} \
+  --username={hub_username} \
+  --password={hub_password} \
+  --insecure-skip-tls-verify=true
+----
+
+.Sample Output
+[source,text]
+----
+Student context saved: default/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin
+Login successful.
+
+You have access to the following projects and can switch between them with 'oc project <projectname>':
+
+  * default
+
+Using project "default".
+----
+
+==== Step 4b — Run the dashboard script (hub context active)
 
 [source,bash,subs="+attributes",role=execute]
 ----
@@ -245,7 +274,7 @@ NAMESPACE={namespace} ./create-acm-dashboard.sh
 ══════════════════════════════════════════════════
   Module 2 — Create ACM Grafana Dashboard
 ══════════════════════════════════════════════════
-[INFO]  Grafana URL : https://grafana-open-cluster-management-observability.apps.hub.student-01.sandbox5388.opentlc.com
+[INFO]  Grafana URL : https://grafana-open-cluster-management-observability.apps.hub.hub-capacity.sandbox5388.opentlc.com
 [INFO]  Namespace   : capacity-workshop
 [INFO]  Node CPU    : 8 cores
 
@@ -258,7 +287,7 @@ NAMESPACE={namespace} ./create-acm-dashboard.sh
 [OK]    Dashboard created successfully!
 
   Open this URL in your browser:
-  https://grafana-open-cluster-management-observability.apps.hub.student-01.sandbox5388.opentlc.com/d/pod-velocity-1713556800/module-2-pod-velocity-forecast
+  https://grafana-open-cluster-management-observability.apps.hub.hub-capacity.sandbox5388.opentlc.com/d/pod-velocity-1713556800/module-2-pod-velocity-forecast
 
   Dashboard UID : pod-velocity-1713556800
   Folder        : General
@@ -272,6 +301,26 @@ NAMESPACE={namespace} ./create-acm-dashboard.sh
 [WARN]  If you see data for only one cluster, additional student clusters
 [WARN]  may not yet be registered as RHACM managed clusters (covered in Module 5).
 ----
+
+==== Step 4c — Switch back to your student cluster
+
+[source,bash,role=execute]
+----
+oc config use-context $STUDENT_CTX
+oc whoami
+----
+
+.Sample Output
+[source,text]
+----
+Switched to context "default/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin".
+system:admin
+----
+
+[TIP]
+====
+This three-step pattern — save context, login to hub, switch back — is used again in Module 5 when you import your student cluster into RHACM.
+====
 
 === Part 5: View the Dashboard
 
