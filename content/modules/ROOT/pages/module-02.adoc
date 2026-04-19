@@ -84,246 +84,226 @@ ssh lab-user@{student-cluster-bastion}
 SSH password: `{student-cluster-password}`
 ====
 
-In this lab, you'll calculate pod velocity using PromQL, build forecasting formulas, and create a custom RHACM dashboard to visualize predictions across your fleet.
+In this lab, you'll use purpose-built scripts to query Prometheus directly from the command line, run the forecasting formula automatically, and create a centralized RHACM dashboard — without having to navigate any browser UIs until the final step.
 
-=== Part 1: Access OpenShift Prometheus
+=== Download Lab Scripts
 
-First, let's access the built-in Prometheus monitoring:
+Download both lab scripts at the start. They are used throughout this module.
 
-[source,bash,role=execute]
+[source,bash,subs="+attributes",role=execute]
 ----
-oc get route -n openshift-monitoring prometheus-k8s -o jsonpath='{.spec.host}'
+mkdir -p ~/module-02 && cd ~/module-02
+BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
+curl -fsSO $BASE/content/modules/ROOT/examples/module-02/pod-velocity-calculator.sh
+curl -fsSO $BASE/content/modules/ROOT/examples/module-02/create-acm-dashboard.sh
+chmod +x *.sh
+ls -lh
 ----
 
 .Sample Output
-[source,textinfo]
+[source,text]
 ----
-prometheus-k8s-openshift-monitoring.{cluster_domain}
-----
-
-[NOTE]
-====
-Open this URL in a new browser tab. You'll be prompted to log in with your OpenShift credentials. Click "Log in with OpenShift" and use your cluster admin token.
-====
-
-=== Part 2: Calculate 30-Day Pod Growth Rate
-
-In the Prometheus UI, enter this PromQL query to calculate pod creation velocity:
-
-[source,promql]
-----
-rate(kube_pod_created[30d])
+-rwxr-xr-x. 1 lab-user lab-user 8.8K Apr 19 pod-velocity-calculator.sh
+-rwxr-xr-x. 1 lab-user lab-user 9.4K Apr 19 create-acm-dashboard.sh
 ----
 
-This shows the rate of pod creation over the last 30 days.
+=== Part 1: Run the Pod Velocity Calculator
+
+The `pod-velocity-calculator.sh` script does everything Parts 1-5 used to require of you manually — it discovers Prometheus automatically, mints an auth token, runs all four PromQL queries, and prints the forecasting result.
+
+[source,bash,subs="+attributes",role=execute]
+----
+cd ~/module-02
+NAMESPACE={namespace} ./pod-velocity-calculator.sh
+----
+
+.Sample Output
+[source,text]
+----
+══════════════════════════════════════════════════
+  Module 2 — Pod Velocity Calculator
+══════════════════════════════════════════════════
+[INFO]  Namespace : capacity-workshop
+[INFO]  Window    : 30 days
+[INFO]  Node CPU  : 8 cores (allocatable)
+
+[INFO]  Step 1/5 — Locating Prometheus route …
+[OK]    Prometheus : https://prometheus-k8s-openshift-monitoring.apps.student.student-01.sandbox5388.opentlc.com
+
+[INFO]  Step 2/5 — Minting Prometheus service-account token …
+[OK]    Token acquired (1287 chars)
+
+[INFO]  Step 3/5 — Calculating pod velocity …
+[OK]    Pods started in last 30d  : 6
+[OK]    Pod velocity              : 0.2 pods/day
+
+[INFO]  Step 4/5 — Querying average resource requests …
+[OK]    Active deployments              : 6
+[OK]    Avg replicas per deployment     : 1.0
+[OK]    Avg CPU request per container   : 167m  (0.167  cores)
+[OK]    Avg Memory request per container: 192Mi (0.188  GiB)
+
+  ┌─────────────────────────────────────────────────────┐
+  │           QUARTERLY FORECASTING MODEL               │
+  ├─────────────────────────────────────────────────────┤
+  │ Pod velocity (last 30d)      :     0.20 pods/day    │
+  │ Quarterly new pods (×90)     :     18.0             │
+  │ Avg CPU request/container    :      167m            │
+  │ Total CPU needed (new)       :     3.01 cores       │
+  │ Node allocatable CPU         :        8 cores/node  │
+  ├─────────────────────────────────────────────────────┤
+  │ Nodes needed next quarter    :     0.38  → ceil = 1 │
+  └─────────────────────────────────────────────────────┘
+
+  RESULT: Add 1 worker node(s) this quarter to accommodate forecasted growth.
+----
 
 [TIP]
 ====
-*Understanding the Query*:
+*Understanding what the script queries*:
 
-* `kube_pod_created` - Timestamp when each pod was created
-* `rate([30d])` - Calculate the per-second rate over 30 days
-* Result is in "pods per second" - we'll convert to "pods per month"
+1. *Pod velocity* — pods whose `kube_pod_start_time` falls within the last 30 days, divided by 30 to get pods/day
+2. *Deployment count* — `kube_deployment_spec_replicas` (how many Deployments exist)
+3. *Avg CPU request* — `kube_pod_container_resource_requests{resource="cpu"}` averaged across all containers
+4. *Avg memory request* — same metric for memory, converted to GiB
+5. *Node forecast* — `(velocity × 90 days × avg_cpu) / node_allocatable_cpu`, rounded up
+
+Want to see the raw PromQL? Open `pod-velocity-calculator.sh` in your editor.
 ====
 
-Now let's get the total count of new pods in the last 30 days:
+=== Part 2: Interpret Your Numbers
 
-[source,promql]
-----
-increase(kube_pod_created[30d])
-----
+Look at the output from the calculator. Answer these questions for your own environment:
 
-.Sample Output
-[source,textinfo]
-----
-{namespace="capacity-workshop"} 145
-{namespace="openshift-monitoring"} 23
-{namespace="openshift-gitops"} 12
-...
-----
+[cols="1,2"]
+|===
+|Metric |Your Value
 
-[WARNING]
-====
-This includes *all* pod creations, including restarts and scaling events. For accurate forecasting, we need to filter for *new Deployments*, not just pod churn.
-====
-
-=== Part 3: Track New Deployment Velocity
-
-A better metric is tracking *new Deployments* rather than individual pods:
-
-[source,promql,subs="+attributes"]
-----
-count(kube_deployment_created{namespace="{namespace}"})
-OR
-count(kube_deployment_created{namespace="{namespace}"} offset 30d)
-----
-
-This compares current deployments to 30 days ago.
-
-Now let's calculate the deployment growth rate:
-
-[source,promql,subs="+attributes"]
-----
-(
-  count(kube_deployment_spec_replicas{namespace="{namespace}"})
-  -
-  count(kube_deployment_spec_replicas{namespace="{namespace}"} offset 30d)
-) / 30
-----
-
-.Sample Output
-[source,textinfo]
-----
-Value: 1.2
-----
-
-This means you're adding approximately *1.2 new deployments per day* in the `{namespace}` namespace.
-
-=== Part 4: Calculate Average Resource Requests
-
-Now we need to know the average CPU/Memory request per deployment:
-
-[source,promql,subs="+attributes"]
-----
-avg(
-  kube_pod_container_resource_requests{resource="cpu", namespace="{namespace}"}
-)
-----
-
-.Sample Output
-[source,textinfo]
-----
-Value: 0.15 (150m CPU average per container)
-----
-
-Similarly for memory:
-
-[source,promql,subs="+attributes"]
-----
-avg(
-  kube_pod_container_resource_requests{resource="memory", namespace="{namespace}"}
-) / 1024 / 1024 / 1024
-----
-
-.Sample Output
-[source,textinfo]
-----
-Value: 0.25 (256Mi average per container)
-----
-
-=== Part 5: Build the Forecasting Formula
-
-Now combine these metrics into a forecasting dashboard panel. Create a new query that projects node requirements for the next quarter:
-
-[source,promql,subs="+attributes"]
-----
-# Pod Velocity (new deployments per day)
-scalar(
-  (count(kube_deployment_spec_replicas{namespace="{namespace}"})
-   - count(kube_deployment_spec_replicas{namespace="{namespace}"} offset 30d)) / 30
-)
-*
-# Days in quarter
-90
-*
-# Average replicas per deployment
-scalar(avg(kube_deployment_spec_replicas{namespace="{namespace}"}))
-*
-# Average CPU request per pod
-scalar(avg(kube_pod_container_resource_requests{resource="cpu", namespace="{namespace}"}))
-/
-# Node allocatable CPU (assuming 8 core nodes)
-8
-----
+|Pod velocity (pods/day) |
+|Quarterly new pods projected |
+|Avg CPU request per container |
+|Nodes needed next quarter |
+|===
 
 [IMPORTANT]
 ====
-*Breaking Down the Formula*:
+*Forecasting Pitfall*:
 
-1. *Pod Velocity*: `(current deploys - deploys 30d ago) / 30` = deployments/day
-2. *Quarterly Growth*: velocity × 90 days
-3. *Total Pods*: quarterly growth × avg replicas
-4. *Total CPU Needed*: total pods × avg CPU request
-5. *Nodes Required*: total CPU / node CPU capacity
-
-*Result*: Number of nodes you'll need to add this quarter.
+This model assumes deployment cadence stays constant. It will *overestimate* if your cluster is still being bootstrapped (many deployments all at once), and *underestimate* during growth phases. Always combine model output with team-level deployment plans.
 ====
 
-=== Part 6: Transition to RHACM Grafana
+=== Part 3: Adjust for Your Node Size
 
-Now that you have the PromQL formula, let's build it into a centralized RHACM dashboard that works across multiple clusters.
+Rerun the calculator with the actual allocatable CPU for your worker nodes:
 
-Access the RHACM Grafana instance:
-
-[source,bash,role=execute,subs="+attributes"]
+[source,bash,subs="+attributes",role=execute]
 ----
-echo "RHACM Grafana: {grafana_url}"
-----
-
-Open this URL in a new tab and log in with your OpenShift credentials.
-
-=== Part 7: Create Pod Velocity Forecast Panel
-
-In Grafana:
-
-1. Click "+ Create" → "Dashboard"
-2. Click "Add visualization"
-3. Select "Prometheus" as the data source
-4. Enter this query:
-
-[source,promql]
-----
-# Simplified version for multi-cluster
-sum(rate(kube_pod_created[30d])) by (cluster) * 2592000
+NODE_ALLOC_RAW=$(oc get node -l node-role.kubernetes.io/worker \
+  -o jsonpath='{.items[0].status.allocatable.cpu}')
+# Convert millicores (e.g. 7500m) to cores (7.5); leave whole-core values unchanged
+NODE_ALLOC=$(python3 -c "
+v='${NODE_ALLOC_RAW}'
+if v.endswith('m'):
+    print(round(int(v[:-1]) / 1000, 2))
+else:
+    print(round(float(v), 2))
+")
+echo "Worker node allocatable CPU: ${NODE_ALLOC} cores"
 ----
 
-This calculates monthly pod creation rate across all clusters.
+Then rerun with the real value:
 
-5. Set the panel title: *"Pod Velocity Forecast - Monthly Growth"*
-6. Change visualization type to *"Stat"*
-7. Set unit to *"pods/month"*
-8. Click "Apply"
-
-=== Part 8: Add Node Requirement Projection
-
-Add a second panel to show projected node requirements:
-
-1. Click "Add panel" → "Add visualization"
-2. Enter this query:
-
-[source,promql]
+[source,bash,subs="+attributes",role=execute]
 ----
-# Project quarterly node requirements
-ceil(
-  (
-    sum(rate(kube_pod_created[30d])) by (cluster) * 7776000  # 90 days in seconds
-    *
-    scalar(avg(kube_pod_container_resource_requests{resource="cpu"}))
-  ) / 8  # Assuming 8-core nodes
-)
+cd ~/module-02
+NAMESPACE={namespace} NODE_CPU=${NODE_ALLOC} ./pod-velocity-calculator.sh
 ----
 
-3. Set panel title: *"Projected Nodes Needed (Next Quarter)"*
-4. Visualization: *"Gauge"*
-5. Set thresholds:
-   - Green: 0-5 nodes
-   - Yellow: 5-10 nodes
-   - Red: 10+ nodes
+Compare the "Nodes needed" figure to the default (8-core assumption). Does a larger node size reduce your projected node count significantly?
 
-6. Click "Apply"
+=== Part 4: Create the ACM Grafana Dashboard
 
-=== Part 9: Validate the Forecast
+Now push the forecasting panels into the RHACM Grafana instance running on the hub cluster. The script creates the dashboard via the Grafana HTTP API — no clicking required.
 
-Let's test our forecast against actual data. Run this command to count current pods:
+[NOTE]
+====
+The RHACM Grafana URL (`{hub_grafana_url}`) is injected into your Showroom terminal from the hub cluster provisioning. It is populated automatically when the hub cluster configures RHACM Observability.
 
-[source,bash,role=execute,subs="+attributes"]
+If `{hub_grafana_url}` is empty, RHACM Observability is not yet configured. This is covered in detail in xref:module-05.adoc[Module 5: Fleet Observability].
+====
+
+[source,bash,subs="+attributes",role=execute]
+----
+cd ~/module-02
+export GRAFANA_URL={hub_grafana_url}
+NAMESPACE={namespace} ./create-acm-dashboard.sh
+----
+
+.Sample Output
+[source,text]
+----
+══════════════════════════════════════════════════
+  Module 2 — Create ACM Grafana Dashboard
+══════════════════════════════════════════════════
+[INFO]  Grafana URL : https://grafana-open-cluster-management-observability.apps.hub.student-01.sandbox5388.opentlc.com
+[INFO]  Namespace   : capacity-workshop
+[INFO]  Node CPU    : 8 cores
+
+[INFO]  Step 1/3 — Obtaining OpenShift token for Grafana authentication …
+[OK]    Token acquired (1287 chars)
+[INFO]  Step 2/3 — Verifying Grafana API is reachable …
+[OK]    Grafana API is reachable (HTTP 200)
+[INFO]  Step 3/3 — Creating Pod Velocity Forecast dashboard …
+
+[OK]    Dashboard created successfully!
+
+  Open this URL in your browser:
+  https://grafana-open-cluster-management-observability.apps.hub.student-01.sandbox5388.opentlc.com/d/pod-velocity-1713556800/module-2-pod-velocity-forecast
+
+  Dashboard UID : pod-velocity-1713556800
+  Folder        : General
+
+  The dashboard has three panels:
+    1. Pod Velocity Forecast — Monthly Growth  (Stat, per cluster)
+    2. Projected Nodes Needed (Next Quarter)   (Gauge, per cluster)
+    3. Pod Count Over Time in capacity-workshop (Time series)
+
+[WARN]  RHACM Observability aggregates metrics from ALL managed clusters.
+[WARN]  If you see data for only one cluster, additional student clusters
+[WARN]  may not yet be registered as RHACM managed clusters (covered in Module 5).
+----
+
+=== Part 5: View the Dashboard
+
+Open the URL printed by the script in a new browser tab. You will see three panels:
+
+1. *Pod Velocity Forecast — Monthly Growth* (Stat panels, one per cluster) — how many pods are being created each month across your fleet
+2. *Projected Nodes Needed (Next Quarter)* (Gauge panels, one per cluster) — the computed node requirement with green/yellow/red thresholds
+3. *Pod Count Over Time* (Time series) — a historical view of pod growth in your namespace
+
+[TIP]
+====
+*What to look for*:
+
+* If the Gauge shows *green (0-5 nodes)*, your cluster has comfortable headroom
+* *Yellow (5-10)* means you should start a procurement conversation this quarter
+* *Red (10+)* means you need nodes sooner — initiate an emergency capacity request
+
+In your own environment, replace the hard-coded 8-core assumption by setting `NODE_CPU` to your actual worker node allocatable CPU before running the dashboard script. This makes the thresholds meaningful for your specific infrastructure.
+====
+
+=== Part 6: Validate the Forecast
+
+Let's cross-check the model against what's actually running. Run this command to count current pods:
+
+[source,bash,subs="+attributes",role=execute]
 ----
 oc get pods -n {namespace} --no-headers | wc -l
 ----
 
-Now check what the forecast predicted 30 days ago vs reality:
+Now run the full validation echo:
 
-[source,bash,role=execute,subs="+attributes"]
+[source,bash,subs="+attributes",role=execute]
 ----
 echo "Current pod count: $(oc get pods -n {namespace} --no-headers | wc -l)"
 echo ""
@@ -348,10 +328,10 @@ In production, you'd store daily snapshots of these metrics in a time-series dat
 
 You've now built:
 
-✅ Pod Velocity calculation using PromQL
-✅ Average resource request metrics
+✅ Pod Velocity calculation using the Prometheus API (no browser PromQL needed)
+✅ Average resource request metrics pulled automatically
 ✅ Quarterly node requirement projection formula
-✅ Custom RHACM Grafana dashboard for fleet-wide visibility
+✅ Custom RHACM Grafana dashboard for fleet-wide visibility — created via API
 ✅ Understanding of why Pod Velocity beats linear CPU trending
 
 === Real-World Application
@@ -362,6 +342,25 @@ Take this model back to your organization:
 2. *Measure average resource requests* - What's your "standard microservice footprint"?
 3. *Calculate node runway* - When will you run out of capacity?
 4. *Build forecasting into your change approval process* - Every new service deployment should update the forecast
+
+[NOTE]
+====
+*Reusing these scripts in your own environment*:
+
+Both scripts accept environment variables so you can adapt them without editing:
+
+[source,bash]
+----
+NAMESPACE=production NODE_CPU=16 WINDOW_DAYS=90 \
+  ./pod-velocity-calculator.sh
+
+GRAFANA_URL=https://my-grafana.example.com \
+  NAMESPACE=production \
+  ./create-acm-dashboard.sh
+----
+
+The scripts are designed to be run repeatedly — `create-acm-dashboard.sh` overwrites the dashboard if it already exists (`"overwrite": true`).
+====
 
 [IMPORTANT]
 ====
@@ -375,8 +374,9 @@ This is why Module 3 (Developer Track - Right-Sizing) is critical. You must fix 
 == Key Takeaways
 
 * *Pod Velocity (deployments/time) is more predictive than linear CPU trending for microservices*
-* *PromQL enables custom forecasting models tailored to your deployment patterns*
+* *The Prometheus API lets you query PromQL from scripts — no browser UI required*
 * *RHACM provides fleet-wide capacity visibility across multiple clusters*
+* *Grafana dashboards can be created programmatically via the HTTP API*
 * *Forecasting accuracy depends on accurate resource requests* (Module 3 fixes this)
 
 == Next Steps
