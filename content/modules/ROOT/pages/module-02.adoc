@@ -196,19 +196,19 @@ This model assumes deployment cadence stays constant. It will *overestimate* if 
 
 Rerun the calculator with the actual allocatable CPU for your worker nodes:
 
-[source,bash,subs="+attributes",role=execute]
+[source,bash,role=execute]
 ----
 NODE_ALLOC_RAW=$(oc get node -l node-role.kubernetes.io/worker \
   -o jsonpath='{.items[0].status.allocatable.cpu}')
 # Convert millicores (e.g. 7500m) to cores (7.5); leave whole-core values unchanged
 NODE_ALLOC=$(python3 -c "
-v='${NODE_ALLOC_RAW}'
+v='$NODE_ALLOC_RAW'
 if v.endswith('m'):
     print(round(int(v[:-1]) / 1000, 2))
 else:
     print(round(float(v), 2))
 ")
-echo "Worker node allocatable CPU: ${NODE_ALLOC} cores"
+echo "Worker node allocatable CPU: $NODE_ALLOC cores"
 ----
 
 Then rerun with the real value:
@@ -216,7 +216,7 @@ Then rerun with the real value:
 [source,bash,subs="+attributes",role=execute]
 ----
 cd ~/module-02
-NAMESPACE={namespace} NODE_CPU=${NODE_ALLOC} ./pod-velocity-calculator.sh
+NAMESPACE={namespace} NODE_CPU=$NODE_ALLOC ./pod-velocity-calculator.sh
 ----
 
 Compare the "Nodes needed" figure to the default (8-core assumption). Does a larger node size reduce your projected node count significantly?
