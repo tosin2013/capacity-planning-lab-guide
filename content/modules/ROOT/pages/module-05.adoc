@@ -184,7 +184,10 @@ This lab has two access paths:
 * *Browser* — open the *RHACM Console* and *Grafana* links from the Quick Access panel on the introduction page. These run on the hub cluster.
 * *Terminal (student cluster)* — some steps apply `oc` commands to your student cluster to configure the RHACM Observability addon. Reconnect if needed:
 
- ssh lab-user@{student-cluster-bastion}
+[source,bash,subs="+attributes",role=execute]
+----
+ssh lab-user@{student-cluster-bastion}
+----
 ====
 
 In this hands-on lab, you'll enable RHACM Observability, customize the metric allowlist to reduce costs, and build a multi-cluster capacity dashboard.
@@ -263,7 +266,7 @@ observability-thanos-store-shard-0-0                  1/1     Running   0       
 
 Get the Grafana route:
 
-[source,bash,role=execute]
+[source,bash,role=execute,subs="+attributes"]
 ----
 echo "RHACM Grafana: {grafana_url}"
 ----

@@ -61,7 +61,10 @@ The gap between "Allocated" (what developers asked for) and "Consumed" (what har
 All terminal commands in this lab run on your *student cluster*.
 If your SSH session ended, reconnect before continuing:
 
- ssh lab-user@{student-cluster-bastion}
+[source,bash,subs="+attributes",role=execute]
+----
+ssh lab-user@{student-cluster-bastion}
+----
 ====
 
 In this hands-on lab, you will audit the capacity baseline of your OpenShift cluster, comparing requested resources versus actual usage.
@@ -159,7 +162,7 @@ oc get pods -A -o json | jq -r '
 
 Now let's check the `{namespace}` namespace specifically:
 
-[source,bash,role=execute]
+[source,bash,role=execute,subs="+attributes"]
 ----
 oc adm top pods -n {namespace}
 ----
@@ -178,7 +181,7 @@ load-generator-67567c576-hdvkj    102m         64Mi
 
 Now compare this to what was *requested*:
 
-[source,bash,role=execute]
+[source,bash,role=execute,subs="+attributes"]
 ----
 oc get pods -n {namespace} -o json | jq -r '
   .items[] |

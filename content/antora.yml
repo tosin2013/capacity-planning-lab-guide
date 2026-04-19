@@ -44,6 +44,10 @@ asciidoc:
     # Legacy / fallback — kept for backward compat with existing module references
     rhacm_console: ""
     grafana_url: ""
+    # Grafana panel legend template placeholder (used in module-05 Grafana queries)
+    # Defining it suppresses the "skipping reference to missing attribute: cluster" Antora warning.
+    # {{cluster}} in AsciiDoc double-substitutes to {cluster} (Grafana legend variable) in HTML.
+    cluster: ""
 
     page-links:
     - url: https://redhat.com
