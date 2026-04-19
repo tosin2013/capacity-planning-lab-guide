@@ -274,6 +274,7 @@ validate_html_attributes() {
         done <<CHECKS
 namespace/capacity-workshop=${TEST_NAMESPACE}
 student-cluster-bastion=${TEST_STUDENT_BASTION}
+student-cluster-password=${TEST_STUDENT_PASSWORD}
 hub_rhacm_console=${TEST_HUB_RHACM}
 CHECKS
     done
@@ -428,7 +429,7 @@ test_cluster_deployment() {
 
     if [ -n "$live_user_data" ]; then
         log_info "Live user_data.yml in cluster:"
-        echo "$live_user_data" | grep -E "(student-cluster-bastion|hub_rhacm|namespace|grafana)" || \
+        echo "$live_user_data" | grep -E "(student-cluster-bastion|student-cluster-password|hub_rhacm|namespace|grafana)" || \
             log_warning "Workshop-specific attributes not found in live user_data"
     else
         log_warning "showroom-userdata ConfigMap not found — Showroom may use empty attributes"
