@@ -338,15 +338,44 @@ Walk through the "ACM - Kubernetes / Compute Resources / Cluster" dashboard and 
 *Answer*: Look for clusters with high "Requested" but low "Usage" - those are wasting capacity.
 ====
 
-=== Part 3: Customize the Metric Allowlist
+=== Part 3: Understanding the Metric Allowlist
 
-Now let's reduce observability storage costs by only collecting metrics we need for capacity planning.
+RHACM Observability does not forward every metric from every cluster to Thanos — that would consume enormous bandwidth and object storage. Instead, a *custom allowlist* ConfigMap named `observability-metrics-custom-allowlist` tells each cluster's `metrics-collector` exactly which metrics to ship.
 
-Check the current metric allowlist:
+[NOTE]
+====
+*Who manages the allowlist?*
+
+In production, the allowlist is an *administrator or SRE responsibility* — not something application developers or workshop students change. In this workshop the allowlist was pre-configured by the hub cluster automation at provisioning time so that all modules work correctly from day one.
+
+This section shows you how to read and understand it, which is a practical skill for any OpenShift platform engineer who needs to know why a particular metric does or does not appear in a Grafana panel.
+====
+
+==== How the allowlist works
+
+RHACM merges the configmap content into the `--match` arguments of each managed cluster's `metrics-collector` pod. There are two filter types:
+
+[cols="1,2,2",options="header"]
+|===
+|Type |Format |Example
+|`names` |Exact metric name — matched as `__name__="<value>"` |`kube_pod_start_time`
+|`matches` |Any valid PromQL label selector |`__name__=~"kube_pod_.*"` — all kube-state-metrics pod series
+|===
+
+If the ConfigMap *exists*, only listed metrics are forwarded.
+If it *does not exist*, the RHACM default allowlist applies (hundreds of metrics, but not all).
+This is why adding a metric to the configmap is sometimes the only way to make a custom Grafana panel show data.
+
+==== Inspect the pre-configured allowlist
 
 [source,bash,role=execute]
 ----
-oc get configmap observability-metrics-custom-allowlist -n open-cluster-management-observability -o yaml
+oc login {hub_api_url} \
+  --username={hub_username} \
+  --password={hub_password} \
+  --insecure-skip-tls-verify=true
+oc get configmap observability-metrics-custom-allowlist \
+  -n open-cluster-management-observability -o yaml
 ----
 
 .Sample Output
@@ -357,114 +386,75 @@ kind: ConfigMap
 metadata:
   name: observability-metrics-custom-allowlist
   namespace: open-cluster-management-observability
+  labels:
+    demo.redhat.com/application: capacity-workshop
 data:
   metrics_list.yaml: |
     names:
-      - :node_memory_MemAvailable_bytes:sum
-      - cluster:usage:resources:sum
-      - cluster_infrastructure_provider
-      - cluster_version
-    matches:
-      - __name__="up"
-----
+      # Module 2 — pod velocity dashboard (panels 1 & 2)
+      - kube_pod_start_time
 
-[IMPORTANT]
-====
-*How Allowlists Work*:
-
-RHACM supports two types of metric filters:
-
-1. *names*: Exact metric name matches (e.g., `cluster_version`)
-2. *matches*: Regex patterns (e.g., `__name__="container_.*"` matches all container metrics)
-
-*If the ConfigMap exists*, only the metrics in the allowlist are forwarded. *If it doesn't exist*, all metrics are forwarded (expensive!).
-====
-
-Let's add capacity-specific metrics to the allowlist:
-
-[source,bash,role=execute]
-----
-cat <<EOF | oc apply -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: observability-metrics-custom-allowlist
-  namespace: open-cluster-management-observability
-data:
-  metrics_list.yaml: |
-    names:
-      # Cluster metadata
-      - cluster_version
-      - cluster_infrastructure_provider
-
-      # Node capacity metrics
-      - kube_node_status_allocatable
-      - kube_node_status_capacity
-      - node_memory_MemTotal_bytes
-
-      # Pod resource requests (for capacity planning)
-      - kube_pod_container_resource_requests
-      - kube_pod_container_resource_limits
-
-      # Deployment scale
+      # Module 2 panel 3 + Module 5 deployment scale view
       - kube_deployment_spec_replicas
       - kube_deployment_status_replicas_available
       - kube_deployment_created
 
-      # HPA metrics
+      # Module 5 — HPA monitoring panels
       - kube_horizontalpodautoscaler_spec_target_metric
       - kube_horizontalpodautoscaler_status_current_replicas
       - kube_horizontalpodautoscaler_status_desired_replicas
 
-      # etcd health
-      - etcd_mvcc_db_total_size_in_bytes
-      - etcd_server_has_leader
-
-      # Actual resource usage (for right-sizing analysis)
-      - container_cpu_usage_seconds_total
-      - container_memory_working_set_bytes
-
-      # Node resource usage
-      - node_cpu_seconds_total
-      - node_memory_MemAvailable_bytes
-
     matches:
-      # Include all "up" metrics (cluster health)
-      - __name__="up"
-
-      # Include all kube-state-metrics pod metrics
+      # All pod-level kube-state-metrics — Modules 2, 3, 5, 6
       - __name__=~"kube_pod_.*"
 
-      # Include CPU throttling metrics (Module 3)
+      # CPU throttling — Module 3 right-sizing analysis
       - __name__="container_cpu_cfs_throttled_seconds_total"
-EOF
 ----
 
-.Sample Output
-[source,textinfo]
-----
-configmap/observability-metrics-custom-allowlist configured
-----
+==== Why each group is here
 
-[WARNING]
+[cols="2,3",options="header"]
+|===
+|Metric / pattern |Why it is needed
+
+|`kube_pod_start_time`
+|Module 2 dashboard panels 1 & 2 compute pod velocity as `rate(kube_pod_start_time[30d])`. Without it those panels are empty.
+
+|`kube_deployment_spec_replicas` + `_status_*` + `_created`
+|Module 2 dashboard panel 3 shows deployment count over time. Module 5 HPA panels also reference replica counts.
+
+|`kube_horizontalpodautoscaler_*`
+|Module 5 HPA monitoring panels — show current vs desired replicas and the scaling target metric.
+
+|`__name__=~"kube_pod_.*"`
+|Captures all pod-level kube-state-metrics in one rule (`kube_pod_info`, `kube_pod_status_phase`, etc.). Used across Modules 2, 3, 5, and 6.
+
+|`container_cpu_cfs_throttled_seconds_total`
+|Module 3 right-sizing analysis — identifies containers that are being CPU-throttled. Not in the RHACM default allowlist.
+|===
+
+[TIP]
 ====
-*Allowlist Changes Take Effect Gradually*:
+*What if you need a new metric in production?*
 
-After updating the ConfigMap:
+The platform admin patches the configmap:
 
-1. The `metrics-collector-deployment` on each managed cluster detects the change (~2 minutes)
-2. It restarts with the new allowlist (~1 minute)
-3. New metrics start flowing to Thanos (~30 seconds)
-4. Old metrics (not in the allowlist) stop being collected immediately
-
-*Total delay*: ~3-4 minutes before dashboards reflect the change.
-
-*To force immediate reload*:
 ```bash
-oc rollout restart deployment metrics-collector-deployment -n open-cluster-management-addon-observability
+oc patch configmap observability-metrics-custom-allowlist \
+  -n open-cluster-management-observability \
+  --type=merge \
+  -p '{"data":{"metrics_list.yaml":"names:\n  - my_new_metric\n"}}'
 ```
-(Run this on each managed cluster, or wait for automatic detection.)
+
+The `metrics-collector-deployment` on each managed cluster detects the change within ~2 minutes and restarts automatically. New data starts flowing to Thanos within one scrape interval (default: 5 minutes).
 ====
+
+[source,bash,role=execute]
+----
+oc config use-context $(oc config get-contexts -o name | grep student | head -1) 2>/dev/null \
+  || echo "Switch back to your student cluster context when finished."
+----
 
 === Part 4: Build a Multi-Cluster Capacity Dashboard
 
