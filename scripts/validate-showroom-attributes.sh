@@ -325,15 +325,25 @@ test_showroom_container() {
     log_warning "Make sure local changes are pushed to GitHub before trusting this result."
     log_info "Container cloning: $git_repo_url @ $git_ref"
 
-    # Do NOT mount /showroom/repo — the container clones there itself
-    podman run --rm \
+    # Do NOT mount /showroom/repo — the container clones there itself.
+    # --user root is required: the showroom-content image runs as 'antora' (uid 1002) by
+    # default, but /showroom/ does not exist in the image and /showroom/www needs to be
+    # created by the container, which requires root when the www volume is host-owned.
+    # timeout 300s: after building the site the container starts python -m http.server
+    # which never exits, so we kill it after 5 minutes (build should finish well before).
+    mkdir -p "${TEST_OUTPUT_DIR}/showroom-www"
+    timeout 300s podman run --rm \
+        --user root \
         -v "${test_user_data}:/user_data/user_data.yml:z" \
         -v "${TEST_OUTPUT_DIR}/showroom-www:/showroom/www:z" \
         -e GIT_REPO_URL="${git_repo_url}" \
         -e GIT_REPO_REF="${git_ref}" \
         -e ANTORA_PLAYBOOK="${ANTORA_PLAYBOOK}" \
         "$SHOWROOM_IMAGE" 2>&1 | tee "$TEST_OUTPUT_DIR/showroom-container.log" || {
-            log_warning "Showroom container exited non-zero — check $TEST_OUTPUT_DIR/showroom-container.log"
+            # Exit code 124 = timeout (expected after build + http.server start)
+            if [ $? -ne 124 ]; then
+                log_warning "Showroom container exited non-zero — check $TEST_OUTPUT_DIR/showroom-container.log"
+            fi
         }
 
     if ls "$TEST_OUTPUT_DIR/showroom-www/modules/"*.html &>/dev/null; then
