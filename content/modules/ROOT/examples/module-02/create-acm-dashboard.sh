@@ -3,7 +3,9 @@
 # Module 2 — The Mathematics of Forecasting
 #
 # Creates a Pod Velocity Forecast dashboard in the RHACM Grafana instance
-# via the Grafana HTTP API.  Students open the printed URL to view the result.
+# using Kubernetes ConfigMap provisioning (the supported RHACM approach).
+# The RHACM grafana-dashboard-loader sidecar automatically imports ConfigMaps
+# labelled "general-folder: true" from the observability namespace.
 #
 # Usage:
 #   GRAFANA_URL=https://grafana-open-cluster-management-observability.apps.hub.example.com \
@@ -32,8 +34,7 @@ header()  { echo -e "\n${BOLD}${CYAN}══════════════�
             echo -e "${BOLD}${CYAN}══════════════════════════════════════════════════${RESET}"; }
 
 # ── pre-flight ────────────────────────────────────────────────────────────────
-command -v oc     &>/dev/null || error "'oc' not found. Run this script on your student bastion."
-command -v curl   &>/dev/null || error "'curl' not found."
+command -v oc      &>/dev/null || error "'oc' not found. Run this script on your student bastion."
 command -v python3 &>/dev/null || error "'python3' not found."
 
 if [[ -z "${GRAFANA_URL:-}" ]]; then
@@ -58,205 +59,165 @@ info "Grafana URL : ${GRAFANA_URL}"
 info "Namespace   : ${NAMESPACE}"
 info "Node CPU    : ${NODE_CPU} cores"
 
-# ── Step 1: Get OCP token for Grafana auth ────────────────────────────────────
+# ── Step 1: Confirm oc login and get current user ─────────────────────────────
 echo ""
-info "Step 1/3 — Obtaining OpenShift token for Grafana authentication …"
-OCP_TOKEN=$(oc create token grafana-sa -n open-cluster-management-observability 2>/dev/null) \
-  || OCP_TOKEN=$(oc whoami -t 2>/dev/null) \
+info "Step 1/3 — Confirming hub cluster login …"
+HUB_USER=$(oc whoami 2>/dev/null) \
+  || error "Not logged in. Run 'oc login <hub_api_url>' first."
+OCP_TOKEN=$(oc whoami -t 2>/dev/null) \
   || error "Could not obtain an OCP auth token. Ensure you are logged in with 'oc login'."
+success "Logged in as : ${HUB_USER}"
 success "Token acquired (${#OCP_TOKEN} chars)"
 
 # ── Step 2: Verify Grafana is reachable ───────────────────────────────────────
-info "Step 2/3 — Verifying Grafana API is reachable …"
+echo ""
+info "Step 2/3 — Verifying Grafana is reachable …"
 HTTP_STATUS=$(curl -sk -o /dev/null -w "%{http_code}" \
   -H "Authorization: Bearer ${OCP_TOKEN}" \
   "${GRAFANA_URL}/api/health")
 
 if [[ "$HTTP_STATUS" != "200" ]]; then
-  error "Grafana API returned HTTP ${HTTP_STATUS} at ${GRAFANA_URL}/api/health.
+  error "Grafana returned HTTP ${HTTP_STATUS} at ${GRAFANA_URL}/api/health.
   Check that:
     1. GRAFANA_URL is correct (no trailing slash, full https:// URL)
-    2. RHACM Observability is installed on the hub cluster
-    3. Your token has Grafana viewer or editor access"
+    2. RHACM Observability is installed on the hub cluster"
 fi
-success "Grafana API is reachable (HTTP 200)"
+success "Grafana is reachable (HTTP 200)"
 
-# ── Step 3: POST dashboard ────────────────────────────────────────────────────
+# ── Step 3: Create dashboard via ConfigMap provisioning ───────────────────────
+# RHACM Grafana uses a dashboard-loader sidecar that watches ConfigMaps
+# labelled "general-folder: true" in the observability namespace and imports
+# them automatically. This is the supported method — the Grafana HTTP API
+# requires Editor/Admin role which the oauth-proxy maps only to cluster-admin.
 echo ""
 info "Step 3/3 — Creating Pod Velocity Forecast dashboard …"
 
-# Timestamps for unique dashboard uid
 UID_SUFFIX=$(date +%s)
 DASHBOARD_UID="pod-velocity-${UID_SUFFIX}"
+CM_NAME="grafana-dashboard-module-02-pod-velocity"
 
 # PromQL expressions used in the panels
-# These use multi-cluster label if available, fall back to single-cluster data.
-PANEL_VELOCITY_EXPR="sum by (cluster) (rate(kube_pod_start_time[30d])) * 2592000"
-PANEL_NODES_EXPR="ceil( ( sum by (cluster) (rate(kube_pod_start_time[30d])) * 7776000 * scalar(avg(kube_pod_container_resource_requests{resource=\"cpu\"})) ) / ${NODE_CPU} )"
+# JSON-escape them with Python to safely embed inside a JSON string
+# (PromQL contains {resource="cpu"} which has bare double quotes)
+PANEL_VELOCITY_RAW='sum by (cluster) (rate(kube_pod_start_time[30d])) * 2592000'
+PANEL_NODES_RAW="ceil( ( sum by (cluster) (rate(kube_pod_start_time[30d])) * 7776000 * scalar(avg(kube_pod_container_resource_requests{resource=\"cpu\"})) ) / ${NODE_CPU} )"
+POD_COUNT_RAW="count(kube_pod_info{namespace=\"${NAMESPACE}\"})"
+DEPL_COUNT_RAW="count(kube_deployment_spec_replicas{namespace=\"${NAMESPACE}\"}) or vector(0)"
 
-DASHBOARD_JSON=$(cat <<DASHEOF
-{
-  "dashboard": {
-    "uid": "${DASHBOARD_UID}",
-    "title": "Module 2 — Pod Velocity Forecast",
-    "tags": ["capacity-planning", "module-02", "workshop"],
-    "timezone": "browser",
-    "schemaVersion": 36,
-    "version": 0,
-    "refresh": "5m",
-    "panels": [
-      {
-        "id": 1,
-        "type": "stat",
-        "title": "Pod Velocity Forecast — Monthly Growth",
-        "description": "Rate of pod creation (pods/month) aggregated across all managed clusters. Formula: rate(kube_pod_start_time[30d]) × 2592000 seconds/month.",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-        "datasource": { "type": "prometheus", "uid": "\${datasource}" },
-        "targets": [
-          {
-            "expr": "${PANEL_VELOCITY_EXPR}",
-            "legendFormat": "{{cluster}}",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "orientation": "auto",
-          "textMode": "auto",
-          "colorMode": "background"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "displayName": "${__series.name} pods/month",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green", "value": null },
-                { "color": "yellow", "value": 100 },
-                { "color": "red",    "value": 500 }
-              ]
-            }
-          }
-        }
-      },
-      {
-        "id": 2,
-        "type": "gauge",
-        "title": "Projected Nodes Needed (Next Quarter)",
-        "description": "Estimated additional worker nodes required over the next 90 days based on current pod creation velocity and average CPU requests. Assumes ${NODE_CPU}-core nodes.",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-        "datasource": { "type": "prometheus", "uid": "\${datasource}" },
-        "targets": [
-          {
-            "expr": "${PANEL_NODES_EXPR}",
-            "legendFormat": "{{cluster}}",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "orientation": "auto",
-          "showThresholdLabels": true,
-          "showThresholdMarkers": true
-        },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "min": 0,
-            "max": 20,
-            "displayName": "${__series.name}",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green",  "value": null },
-                { "color": "yellow", "value": 5 },
-                { "color": "red",    "value": 10 }
-              ]
-            }
-          }
-        }
-      },
-      {
-        "id": 3,
-        "type": "timeseries",
-        "title": "Pod Count Over Time — ${NAMESPACE}",
-        "description": "Historical pod count in the ${NAMESPACE} namespace to visualise growth trends.",
-        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
-        "datasource": { "type": "prometheus", "uid": "\${datasource}" },
-        "targets": [
-          {
-            "expr": "count(kube_pod_info{namespace=\"${NAMESPACE}\"})",
-            "legendFormat": "Running pods",
-            "refId": "A"
-          },
-          {
-            "expr": "count(kube_deployment_spec_replicas{namespace=\"${NAMESPACE}\"}) or vector(0)",
-            "legendFormat": "Deployments",
-            "refId": "B"
-          }
-        ],
-        "options": {
-          "tooltip": { "mode": "multi" },
-          "legend": { "displayMode": "list", "placement": "bottom" }
-        },
-        "fieldConfig": {
-          "defaults": { "unit": "short" }
-        }
-      }
-    ],
-    "templating": {
-      "list": [
-        {
-          "name": "datasource",
-          "type": "datasource",
-          "query": "prometheus",
-          "label": "Prometheus datasource",
-          "current": {}
-        }
-      ]
+# Python produces a JSON-safe string (without surrounding quotes)
+json_escape() { python3 -c "import json,sys; print(json.dumps(sys.argv[1])[1:-1])" "$1"; }
+PANEL_VELOCITY_EXPR=$(json_escape "${PANEL_VELOCITY_RAW}")
+PANEL_NODES_EXPR=$(json_escape "${PANEL_NODES_RAW}")
+POD_COUNT_EXPR=$(json_escape "${POD_COUNT_RAW}")
+DEPL_COUNT_EXPR=$(json_escape "${DEPL_COUNT_RAW}")
+NS_JSON=$(json_escape "${NAMESPACE}")
+CPU_JSON=$(json_escape "${NODE_CPU}")
+
+# Build the raw Grafana dashboard JSON using Python (avoids bash quoting pitfalls)
+DASHBOARD_JSON=$(python3 - <<PYEOF
+import json
+
+uid       = "${DASHBOARD_UID}"
+ns        = "${NAMESPACE}"
+node_cpu  = "${NODE_CPU}"
+
+vel_expr  = "${PANEL_VELOCITY_EXPR}"
+node_expr = "${PANEL_NODES_EXPR}"
+pod_expr  = "${POD_COUNT_EXPR}"
+dep_expr  = "${DEPL_COUNT_EXPR}"
+
+dash = {
+  "uid": uid,
+  "title": "Module 2 \u2014 Pod Velocity Forecast",
+  "tags": ["capacity-planning", "module-02", "workshop"],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "5m",
+  "panels": [
+    {
+      "id": 1, "type": "stat",
+      "title": "Pod Velocity Forecast \u2014 Monthly Growth",
+      "description": "Rate of pod creation (pods/month). Formula: rate(kube_pod_start_time[30d]) x 2592000 s/month.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "\${datasource}"},
+      "targets": [{"expr": vel_expr, "legendFormat": "{{cluster}}", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "short", "displayName": "\${__series.name} pods/month",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": None}, {"color": "yellow", "value": 100}, {"color": "red", "value": 500}
+        ]}}}
+    },
+    {
+      "id": 2, "type": "gauge",
+      "title": "Projected Nodes Needed (Next Quarter)",
+      "description": "Estimated additional worker nodes required over the next 90 days. Assumes " + node_cpu + "-core nodes.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "\${datasource}"},
+      "targets": [{"expr": node_expr, "legendFormat": "{{cluster}}", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "showThresholdLabels": True, "showThresholdMarkers": True},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 20, "displayName": "\${__series.name}",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": None}, {"color": "yellow", "value": 5}, {"color": "red", "value": 10}
+        ]}}}
+    },
+    {
+      "id": 3, "type": "timeseries",
+      "title": "Pod Count Over Time \u2014 " + ns,
+      "description": "Historical pod count in the " + ns + " namespace to visualise growth trends.",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "\${datasource}"},
+      "targets": [
+        {"expr": pod_expr, "legendFormat": "Running pods", "refId": "A"},
+        {"expr": dep_expr, "legendFormat": "Deployments",  "refId": "B"}
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {"defaults": {"unit": "short"}}
     }
-  },
-  "folderId": 0,
-  "overwrite": true
+  ],
+  "templating": {"list": [{"name": "datasource", "type": "datasource", "query": "prometheus", "label": "Prometheus datasource", "current": {}}]}
 }
-DASHEOF
+print(json.dumps(dash, indent=2))
+PYEOF
 )
 
-RESPONSE=$(curl -sk \
-  -X POST \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${OCP_TOKEN}" \
-  -d "${DASHBOARD_JSON}" \
-  "${GRAFANA_URL}/api/dashboards/db")
+# Validate JSON before applying
+echo "${DASHBOARD_JSON}" | python3 -m json.tool > /dev/null \
+  || error "Dashboard JSON is invalid — this is a script bug, please report it."
 
-# Parse response
-STATUS=$(python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('status','unknown'))" <<< "${RESPONSE}" 2>/dev/null || echo "unknown")
-SLUG=$(python3  -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('slug',''))"   <<< "${RESPONSE}" 2>/dev/null || echo "")
-URL_PATH=$(python3  -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('url',''))"    <<< "${RESPONSE}" 2>/dev/null || echo "")
+# Apply the ConfigMap (create or update)
+oc apply -f - <<YAMLEOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${CM_NAME}
+  namespace: open-cluster-management-observability
+  labels:
+    general-folder: "true"
+data:
+  module-02-pod-velocity-forecast.json: |
+$(echo "${DASHBOARD_JSON}" | sed 's/^/    /')
+YAMLEOF
 
-if [[ "$STATUS" == "success" ]]; then
-  DASHBOARD_URL="${GRAFANA_URL}${URL_PATH}"
-  echo ""
-  success "Dashboard created successfully!"
-  echo ""
-  echo -e "  ${BOLD}${GREEN}Open this URL in your browser:${RESET}"
-  echo -e "  ${BOLD}${CYAN}${DASHBOARD_URL}${RESET}"
-  echo ""
-  echo "  Dashboard UID : ${DASHBOARD_UID}"
-  echo "  Folder        : General"
-  echo ""
-  echo "  The dashboard has three panels:"
-  echo "    1. Pod Velocity Forecast — Monthly Growth  (Stat, per cluster)"
-  echo "    2. Projected Nodes Needed (Next Quarter)   (Gauge, per cluster)"
-  echo "    3. Pod Count Over Time in ${NAMESPACE}     (Time series)"
-  echo ""
-  warn "RHACM Observability aggregates metrics from ALL managed clusters."
-  warn "If you see data for only one cluster, additional student clusters"
-  warn "may not yet be registered as RHACM managed clusters (covered in Module 5)."
-else
-  ERROR_MSG=$(python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('message',''))" <<< "${RESPONSE}" 2>/dev/null || echo "see raw response below")
-  echo ""
-  warn "Grafana API response: ${RESPONSE}"
-  error "Dashboard creation failed (status: ${STATUS}): ${ERROR_MSG}"
-fi
+DASHBOARD_URL="${GRAFANA_URL}/dashboards"
+
+echo ""
+success "Dashboard ConfigMap applied successfully!"
+echo ""
+echo -e "  ${BOLD}${GREEN}Open Grafana and browse to:${RESET}"
+echo -e "  ${BOLD}${CYAN}${DASHBOARD_URL}${RESET}"
+echo ""
+echo "  Dashboard title : Module 2 — Pod Velocity Forecast"
+echo "  Folder          : General"
+echo "  ConfigMap       : ${CM_NAME}"
+echo "  Namespace       : open-cluster-management-observability"
+echo ""
+echo "  The dashboard has three panels:"
+echo "    1. Pod Velocity Forecast — Monthly Growth  (Stat, per cluster)"
+echo "    2. Projected Nodes Needed (Next Quarter)   (Gauge, per cluster)"
+echo "    3. Pod Count Over Time in ${NAMESPACE}     (Time series)"
+echo ""
+warn "RHACM Observability aggregates metrics from ALL managed clusters."
+warn "If you see data for only one cluster, additional student clusters"
+warn "may not yet be registered as RHACM managed clusters (covered in Module 5)."
+warn "Allow 30-60 seconds for the Grafana dashboard loader to import the ConfigMap."

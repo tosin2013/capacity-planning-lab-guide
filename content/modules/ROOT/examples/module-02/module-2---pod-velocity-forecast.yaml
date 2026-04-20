@@ -1,0 +1,157 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: module-2---pod-velocity-forecast
+  namespace: open-cluster-management-observability
+  labels:
+    # grafana-custom-dashboard is the label watched by the RHACM grafana-dashboard-loader
+    # for user-created dashboards.  Do NOT use general-folder: "true" — that label is
+    # reserved for RHACM's own built-in dashboards and is not re-checked for custom ones.
+    grafana-custom-dashboard: "true"
+data:
+  module-2---pod-velocity-forecast.json: |
+    {
+      "uid": "module-02-pod-velocity",
+      "title": "Module 2 \u2014 Pod Velocity Forecast",
+      "tags": ["capacity-planning", "module-02", "workshop"],
+      "timezone": "browser",
+      "schemaVersion": 36,
+      "version": 5,
+      "refresh": "5m",
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Pod Velocity Forecast \u2014 Monthly Growth ($namespace)",
+          "description": "Pods started in the selected namespace(s) in the last 30 days, per cluster. Default namespace is capacity-workshop — matches pod-velocity-calculator.sh output directly.",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {
+              "expr": "count by (cluster) (kube_pod_start_time{cluster=~\"$cluster\", namespace=~\"$namespace\"} > (time() - 2592000))",
+              "legendFormat": "{{cluster}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "orientation": "auto",
+            "textMode": "auto",
+            "colorMode": "background"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "displayName": "${__series.name} pods/month",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 100},
+                  {"color": "red", "value": 500}
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 2,
+          "type": "gauge",
+          "title": "Projected Nodes Needed (Next Quarter)",
+          "description": "ceil((pods_in_30d * 3 * avg_cpu_request) / 8) for selected namespace(s). Change the Namespace dropdown to see fleet-wide vs scoped projections.",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {
+              "expr": "ceil( count by (cluster) (kube_pod_start_time{cluster=~\"$cluster\", namespace=~\"$namespace\"} > (time() - 2592000)) * 3 * scalar(avg(kube_pod_container_resource_requests{cluster=~\"$cluster\", resource=\"cpu\", namespace=~\"$namespace\"})) / 8 )",
+              "legendFormat": "{{cluster}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "orientation": "auto",
+            "showThresholdLabels": true,
+            "showThresholdMarkers": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "max": 20,
+              "displayName": "${__series.name}",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 5},
+                  {"color": "red", "value": 10}
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Pod Count Over Time \u2014 $namespace",
+          "description": "Historical pod count in the selected namespace(s). Switch the Namespace dropdown to compare capacity-workshop against other namespaces.",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {
+              "expr": "count(kube_pod_info{cluster=~\"$cluster\", namespace=~\"$namespace\"})",
+              "legendFormat": "Running pods",
+              "refId": "A"
+            },
+            {
+              "expr": "count(kube_deployment_spec_replicas{cluster=~\"$cluster\", namespace=~\"$namespace\"}) or vector(0)",
+              "legendFormat": "Deployments",
+              "refId": "B"
+            }
+          ],
+          "options": {
+            "tooltip": {"mode": "multi"},
+            "legend": {"displayMode": "list", "placement": "bottom"}
+          },
+          "fieldConfig": {"defaults": {"unit": "short"}}
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "label": "Prometheus datasource",
+            "current": {}
+          },
+          {
+            "name": "cluster",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "${datasource}"},
+            "label": "Cluster",
+            "query": "label_values(kube_pod_info, cluster)",
+            "current": {"text": "student-01", "value": "student-01"},
+            "includeAll": true,
+            "allValue": ".+",
+            "multi": false,
+            "sort": 1,
+            "refresh": 2
+          },
+          {
+            "name": "namespace",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "${datasource}"},
+            "label": "Namespace",
+            "query": "label_values(kube_pod_info, namespace)",
+            "current": {"text": "capacity-workshop", "value": "capacity-workshop"},
+            "includeAll": true,
+            "allValue": ".+",
+            "multi": false,
+            "sort": 1,
+            "refresh": 2
+          }
+        ]
+      }
+    }

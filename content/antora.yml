@@ -47,6 +47,7 @@ asciidoc:
     hub_api_url: ""          # https://api.hub.<guid>.<domain>:6443
     hub_username: ""         # student-<student-guid>  (e.g. student-student-01)
     hub_password: ""         # shared hub password (all students use same password)
+    hub_dev_grafana_url: "" # https://grafana-dev-open-cluster-management-observability.apps.hub.<guid>.<domain>
     # Legacy / fallback — kept for backward compat with existing module references
     rhacm_console: ""
     grafana_url: ""

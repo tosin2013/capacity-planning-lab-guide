@@ -96,6 +96,7 @@ mkdir -p ~/module-02 && cd ~/module-02
 BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
 curl -fsSO $BASE/content/modules/ROOT/examples/module-02/pod-velocity-calculator.sh
 curl -fsSO $BASE/content/modules/ROOT/examples/module-02/create-acm-dashboard.sh
+curl -fsSO $BASE/content/modules/ROOT/examples/module-02/module-2---pod-velocity-forecast.yaml
 chmod +x *.sh
 ls -lh
 ----
@@ -103,8 +104,9 @@ ls -lh
 .Sample Output
 [source,text]
 ----
--rwxr-xr-x. 1 lab-user lab-user 8.8K Apr 19 pod-velocity-calculator.sh
--rwxr-xr-x. 1 lab-user lab-user 9.4K Apr 19 create-acm-dashboard.sh
+-rwxr-xr-x. 1 lab-user lab-user  11K Apr 20 create-acm-dashboard.sh
+-rw-r--r--. 1 lab-user lab-user 4.2K Apr 20 module-2---pod-velocity-forecast.yaml
+-rwxr-xr-x. 1 lab-user lab-user 8.8K Apr 20 pod-velocity-calculator.sh
 ----
 
 === Part 1: Run the Pod Velocity Calculator
@@ -221,17 +223,18 @@ NAMESPACE={namespace} NODE_CPU=$NODE_ALLOC ./pod-velocity-calculator.sh
 
 Compare the "Nodes needed" figure to the default (8-core assumption). Does a larger node size reduce your projected node count significantly?
 
-=== Part 4: Create the ACM Grafana Dashboard
+=== Part 4: Publish the Pod Velocity Dashboard to RHACM Grafana
 
-Now push the forecasting panels into the RHACM Grafana instance running on the hub cluster. The script authenticates using an `oc` token from the hub cluster. You will switch your `oc` context to the hub, run the script, then switch back — a pattern you will reuse in xref:module-05.adoc[Module 5].
+Push the forecasting panels into the RHACM Grafana instance running on the hub cluster.
+You will switch your `oc` context to the hub, apply a pre-built dashboard ConfigMap, then switch back — a pattern you will reuse in xref:module-05.adoc[Module 5].
 
 [NOTE]
 ====
 *Why switch context?*
 
-RHACM Grafana runs on the *hub* cluster and validates your OpenShift identity via `oauth-proxy`. Your current `oc` session points at your *student* cluster, so its token won't work against the hub. Logging into the hub cluster sets the active context so `oc whoami -t` returns a hub token that the script uses automatically.
-
-`viewers_can_edit = true` is set in RHACM Grafana — even though your hub role is Viewer, you can fully create and edit dashboards.
+RHACM Grafana runs on the *hub* cluster. Your current `oc` session points at your
+*student* cluster. Logging into the hub gives you a hub token so `oc apply` can
+write to the hub's `open-cluster-management-observability` namespace.
 ====
 
 ==== Step 4a — Save your student context and log into the hub
@@ -249,58 +252,31 @@ oc login {hub_api_url} \
 .Sample Output
 [source,text]
 ----
-Student context saved: default/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin
+Student context saved: capacity-workshop/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin
 Login successful.
 
-You have access to the following projects and can switch between them with 'oc project <projectname>':
+You don't have any projects. You can try to create a new project, by running
 
-  * default
-
-Using project "default".
+    oc new-project <projectname>
 ----
 
-==== Step 4b — Run the dashboard script (hub context active)
+==== Step 4b — Apply the Pod Velocity Forecast dashboard ConfigMap
 
-[source,bash,subs="+attributes",role=execute]
+[source,bash,role=execute]
 ----
-cd ~/module-02
-export GRAFANA_URL={hub_grafana_url}
-NAMESPACE={namespace} ./create-acm-dashboard.sh
+oc apply -f ~/module-02/module-2---pod-velocity-forecast.yaml \
+  -n open-cluster-management-observability
 ----
 
 .Sample Output
 [source,text]
 ----
-══════════════════════════════════════════════════
-  Module 2 — Create ACM Grafana Dashboard
-══════════════════════════════════════════════════
-[INFO]  Grafana URL : https://grafana-open-cluster-management-observability.apps.hub.hub-capacity.sandbox5388.opentlc.com
-[INFO]  Namespace   : capacity-workshop
-[INFO]  Node CPU    : 8 cores
-
-[INFO]  Step 1/3 — Obtaining OpenShift token for Grafana authentication …
-[OK]    Token acquired (1287 chars)
-[INFO]  Step 2/3 — Verifying Grafana API is reachable …
-[OK]    Grafana API is reachable (HTTP 200)
-[INFO]  Step 3/3 — Creating Pod Velocity Forecast dashboard …
-
-[OK]    Dashboard created successfully!
-
-  Open this URL in your browser:
-  https://grafana-open-cluster-management-observability.apps.hub.hub-capacity.sandbox5388.opentlc.com/d/pod-velocity-1713556800/module-2-pod-velocity-forecast
-
-  Dashboard UID : pod-velocity-1713556800
-  Folder        : General
-
-  The dashboard has three panels:
-    1. Pod Velocity Forecast — Monthly Growth  (Stat, per cluster)
-    2. Projected Nodes Needed (Next Quarter)   (Gauge, per cluster)
-    3. Pod Count Over Time in capacity-workshop (Time series)
-
-[WARN]  RHACM Observability aggregates metrics from ALL managed clusters.
-[WARN]  If you see data for only one cluster, additional student clusters
-[WARN]  may not yet be registered as RHACM managed clusters (covered in Module 5).
+configmap/module-2---pod-velocity-forecast created
 ----
+
+The `grafana-dashboard-loader` sidecar detects the new ConfigMap (labelled
+`grafana-custom-dashboard: "true"`) and imports it into production Grafana
+within a few seconds.
 
 ==== Step 4c — Switch back to your student cluster
 
@@ -313,7 +289,7 @@ oc whoami
 .Sample Output
 [source,text]
 ----
-Switched to context "default/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin".
+Switched to context "capacity-workshop/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin".
 system:admin
 ----
 
@@ -322,21 +298,99 @@ system:admin
 This three-step pattern — save context, login to hub, switch back — is used again in Module 5 when you import your student cluster into RHACM.
 ====
 
+[#dev-grafana-overview]
+=== How RHACM Dev Grafana Works
+
+The ConfigMap you just applied was generated using the official *RHACM Development Grafana* tooling from the
+https://github.com/stolostron/multicluster-observability-operator[multicluster-observability-operator]
+repository.  Understanding this workflow is useful when you want to build your own custom dashboards in
+a real environment.
+
+A Dev Grafana instance is already running in this workshop hub at:
+
+`{hub_dev_grafana_url}`
+
+Log in with your hub credentials (`{hub_username}` / `{hub_password}`) and explore freely — it connects to the same Thanos datasource as production Grafana but gives you full editor access in the UI.
+
+==== The interactive dashboard workflow
+
+When you want to create or modify dashboards from scratch:
+
+1. *Deploy Dev Grafana* (hub admin runs once):
++
+[source,bash]
+----
+git clone --depth 1 \
+  https://github.com/stolostron/multicluster-observability-operator.git ~/acm-tools
+cd ~/acm-tools/tools
+bash setup-grafana-dev.sh --deploy
+----
+
+2. *Log into Dev Grafana in your browser* — this creates your user record in the Dev Grafana database, which the export script requires.
+
+3. *Promote yourself to Grafana Admin* (optional — needed to create/save dashboards):
++
+[source,bash,subs="+attributes"]
+----
+bash switch-to-grafana-admin.sh {hub_username}
+----
+
+4. *Design your dashboard* in the Dev Grafana UI. Create a folder named after yourself,
+build the panels, and save. The Thanos datasource with all managed cluster metrics is
+already configured.
+
+5. *Export to a production ConfigMap*:
++
+[source,bash]
+----
+bash generate-dashboard-configmap-yaml.sh "Your Dashboard Name"
+# To target a specific folder:
+bash generate-dashboard-configmap-yaml.sh -f "Your Folder" "Your Dashboard Name"
+----
++
+The exported YAML is labelled `grafana-custom-dashboard: "true"` and optionally
+annotated with `observability.open-cluster-management.io/dashboard-folder: <folder>` —
+the loader uses this to place the dashboard in your named folder in production.
+
+6. *Apply to production Grafana*:
++
+[source,bash]
+----
+oc apply -f your-dashboard-name.yaml -n open-cluster-management-observability
+----
+
+7. *Clean up Dev Grafana when done*:
++
+[source,bash]
+----
+bash setup-grafana-dev.sh --clean
+----
+
+[NOTE]
+====
+`generate-dashboard-configmap-yaml.sh` uses `kubectl exec` into the Dev Grafana pod,
+so it requires hub admin (`kubeadmin`) access. Students apply the exported YAML with
+`oc apply` — only ConfigMap create access in the observability namespace is needed,
+which is pre-granted in this workshop.
+====
+
 === Part 5: Log In to Grafana and View the Dashboard
 
 ==== Step 5a — Open the dashboard URL
 
-Copy the URL printed at the end of the script output and paste it into a new browser tab.
-It looks like:
+Open a new browser tab and navigate directly to the RHACM Grafana instance:
 
 [source,text,subs="+attributes"]
 ----
-{hub_grafana_url}/d/pod-velocity-.../module-2-pod-velocity-forecast
+{hub_grafana_url}
 ----
+
+Once logged in, browse to *Dashboards → Custom → Module 2 — Pod Velocity Forecast*.
 
 [TIP]
 ====
-You can also navigate directly to `{hub_grafana_url}` and browse to *Dashboards → General → Module 2 — Pod Velocity Forecast*.
+You can also use the direct dashboard URL:
+`{hub_grafana_url}/d/module-02-pod-velocity`
 ====
 
 ==== Step 5b — Authenticate with OpenShift
@@ -364,9 +418,9 @@ The identity provider is named *workshop-students* because the hub cluster was c
 
 Once logged in you will see three panels:
 
-1. *Pod Velocity Forecast — Monthly Growth* (Stat panels, one per cluster) — how many pods are being created each month across your fleet
-2. *Projected Nodes Needed (Next Quarter)* (Gauge panels, one per cluster) — the computed node requirement with green/yellow/red thresholds
-3. *Pod Count Over Time* (Time series) — a historical view of pod growth in your namespace
+1. *Pod Velocity Forecast — Monthly Growth (capacity-workshop)* (Stat panels, one per cluster) — pods started in `capacity-workshop` in the last 30 days; should match the "Pods started in last 30d" value from `pod-velocity-calculator.sh`
+2. *Projected Nodes Needed (Next Quarter)* (Gauge panels, one per cluster) — the computed node requirement with green/yellow/red thresholds; should match the "Nodes needed next quarter" from the script
+3. *Pod Count Over Time* (Time series) — a historical view of pod growth in `capacity-workshop`
 
 [TIP]
 ====
@@ -377,6 +431,29 @@ Once logged in you will see three panels:
 * *Red (10+)* means you need nodes sooner — initiate an emergency capacity request
 
 Because `viewers_can_edit` is enabled in this Grafana instance, you can also click the panel title → *Edit* to inspect or modify the PromQL query behind any panel — useful for adapting dashboards to your own environment.
+====
+
+.Pod Velocity Forecast Dashboard — Cluster: student-01 / Namespace: capacity-workshop
+image::module-02-grafana-dashboard.png[Pod Velocity Forecast Dashboard showing 6 pods/month and 1 node needed for the capacity-workshop namespace,align="center"]
+
+[NOTE]
+====
+The *Cluster* and *Namespace* dropdowns default to `student-01` and `capacity-workshop`.
+With those selections the Stat and Gauge values match `pod-velocity-calculator.sh` directly — if the script printed "Add 1 worker node(s)", the Gauge shows *1* (green).
+
+Now change *Namespace* to *All* — notice how the numbers jump:
+====
+
+.Namespace = All — 293 pods/month across the entire cluster (includes ~287 platform pods)
+image::module-02-grafana-namespace-all.png[Dashboard with Namespace set to All showing 293 pods/month and 6 nodes needed,align="center"]
+
+[IMPORTANT]
+====
+*This is why namespace scoping matters in capacity planning.*
+
+Those 293 pods are every OpenShift platform pod (etcd, API server, monitoring, DNS, etc.) started when the cluster was provisioned.
+Unscoped, the model recommends 6 new nodes for workloads that are already running and won't grow.
+Always scope your velocity query to the namespaces your *application teams* control.
 ====
 
 === Part 6: Validate the Forecast
@@ -418,7 +495,7 @@ You've now built:
 ✅ Pod Velocity calculation using the Prometheus API (no browser PromQL needed)
 ✅ Average resource request metrics pulled automatically
 ✅ Quarterly node requirement projection formula
-✅ Custom RHACM Grafana dashboard for fleet-wide visibility — created via API
+✅ Custom RHACM Grafana dashboard for fleet-wide visibility — published via ConfigMap
 ✅ Understanding of why Pod Velocity beats linear CPU trending
 
 === Real-World Application
@@ -463,7 +540,7 @@ This is why Module 3 (Developer Track - Right-Sizing) is critical. You must fix 
 * *Pod Velocity (deployments/time) is more predictive than linear CPU trending for microservices*
 * *The Prometheus API lets you query PromQL from scripts — no browser UI required*
 * *RHACM provides fleet-wide capacity visibility across multiple clusters*
-* *Grafana dashboards can be created programmatically via the HTTP API*
+* *RHACM Dev Grafana provides a full-editor instance for interactive dashboard creation — export with `generate-dashboard-configmap-yaml.sh` and promote to production via ConfigMap labelled `grafana-custom-dashboard: "true"`*
 * *Forecasting accuracy depends on accurate resource requests* (Module 3 fixes this)
 
 == Next Steps
