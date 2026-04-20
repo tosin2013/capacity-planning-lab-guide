@@ -64,8 +64,25 @@ oc get pod -n {namespace} -l app=besteffort-app -o jsonpath='{.items[0].status.q
 .Sample Output
 [source,textinfo]
 ----
-BestEffort
+Burstable
 ----
+
+[NOTE]
+====
+*Why does `besteffort-app` show Burstable, not BestEffort?*
+
+The `capacity-workshop` namespace has a `ResourceQuota` that tracks `requests.cpu` and `limits.cpu`. When a quota specifies compute resource fields, Kubernetes *requires every pod to declare those resources*, otherwise it rejects the pod. The besteffort-app's `resources: {}` Deployment is valid YAML, but the scheduler injects default values from the quota enforcement layer, making it Burstable.
+
+*This is intentional in production clusters.* Platform engineers use ResourceQuota to prevent BestEffort pods from silently starving other workloads. You can demonstrate BestEffort in a scratch namespace:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc new-project scratch-qos-demo
+oc run besteffort-test --image=quay.io/prometheus/busybox:latest -- sleep 3600
+oc get pod besteffort-test -n scratch-qos-demo -o jsonpath='{.status.qosClass}'
+oc delete project scratch-qos-demo
+----
+====
 
 Now check a properly configured pod:
 
