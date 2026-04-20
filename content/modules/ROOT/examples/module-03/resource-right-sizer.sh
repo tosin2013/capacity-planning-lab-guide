@@ -184,8 +184,9 @@ bold  = "\033[1m"
 green = "\033[0;32m"
 reset = "\033[0m"
 print(f"{bold}  Apply with:{reset}")
-print(f"{green}  oc set resources deployment load-generator -n {namespace} \\")
-print(f"    --requests=cpu={cpu_req_m}m,memory={mem_req_mi}Mi \\")
+bslash = chr(92)
+print(f"{green}  oc set resources deployment load-generator -n {namespace} {bslash}")
+print(f"    --requests=cpu={cpu_req_m}m,memory={mem_req_mi}Mi {bslash}")
 print(f"    --limits=cpu={cpu_lim_m}m,memory={mem_lim_mi}Mi{reset}")
 print()
 print("  NOTE: CPU limit is set to 2\u00d7 request to allow burst capacity.")
