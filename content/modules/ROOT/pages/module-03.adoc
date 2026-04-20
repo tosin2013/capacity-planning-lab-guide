@@ -374,27 +374,14 @@ The right-sizer bases recommendations on P95 of historical usage — not the pea
 A cluster that has seen heavy test traffic today will show higher P95 values than one running only baseline load. Both answers are correct for their environment.
 ====
 
-Scroll up in your terminal to find the `Apply with:` block at the end of the load-generator right-sizer output (the run *without* `POD_SELECTOR`), then copy and run that `oc set resources` command.
-
-[NOTE]
-====
-If you scrolled past the output, re-run the right-sizer to refresh the recommendation:
+Run the right-sizer with `APPLY=true` — it queries Prometheus, prints the recommendations, and immediately applies the `oc set resources` command and waits for the rollout to complete:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
-----
-====
-
-After applying, verify the QoS class of the newly rolled-out pod:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-sleep 10
-oc get pod -n {namespace} -l app=load-generator -o jsonpath='{.items[0].status.qosClass}'
+NAMESPACE={namespace} APPLY=true ~/module-03/resource-right-sizer.sh
 ----
 
-You should see `Burstable` — the pod now has a request lower than its limit, which is the correct production pattern for a workload with variable CPU.
+The script will print the `RIGHT-SIZING RECOMMENDATIONS` table, apply the resources, wait for the rollout, and confirm the QoS class — all in one step. You should see `Burstable` at the end, confirming the pod has a request lower than its limit.
 
 [NOTE]
 ====
@@ -436,10 +423,8 @@ When ready to continue, reset to the right-sizer recommendation:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
+NAMESPACE={namespace} APPLY=true ~/module-03/resource-right-sizer.sh
 ----
-
-Copy and run the `Apply with:` command from the output.
 
 === Part 5: The Scale - Implement HPA
 

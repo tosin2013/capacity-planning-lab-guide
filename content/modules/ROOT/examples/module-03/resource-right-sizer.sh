@@ -11,17 +11,23 @@
 #   ./resource-right-sizer.sh
 #   NAMESPACE=my-namespace ./resource-right-sizer.sh
 #   NAMESPACE=my-namespace POD_SELECTOR="my-app.*" ./resource-right-sizer.sh
+#   NAMESPACE=my-namespace APPLY=true ./resource-right-sizer.sh
 #
 # Environment variables (all optional):
 #   NAMESPACE     Namespace to analyse    (default: capacity-workshop)
 #   POD_SELECTOR  Pod name regex pattern  (default: load-generator.*)
 #   WINDOW_DAYS   Lookback window in days (default: 7, falls back to 1d if data unavailable)
+#   APPLY         Set to "true" to automatically apply the oc set resources recommendation
 
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-capacity-workshop}"
 POD_SELECTOR="${POD_SELECTOR:-load-generator.*}"
 WINDOW_DAYS="${WINDOW_DAYS:-7}"
+APPLY="${APPLY:-false}"
+
+APPLY_CMD_FILE="$(mktemp /tmp/right-sizer-apply.XXXXXX.sh)"
+trap 'rm -f "${APPLY_CMD_FILE}"' EXIT
 
 # ── colours ──────────────────────────────────────────────────────────────────
 BOLD='\033[1m'; CYAN='\033[0;36m'; GREEN='\033[0;32m'
@@ -191,4 +197,26 @@ print(f"    --limits=cpu={cpu_lim_m}m,memory={mem_lim_mi}Mi{reset}")
 print()
 print("  NOTE: CPU limit is set to 2\u00d7 request to allow burst capacity.")
 print("        Reduce the memory limit if OOMKills stop after right-sizing.")
+
+# Write the bare command to the apply file for APPLY=true mode
+apply_cmd = (
+    f"oc set resources deployment load-generator -n {namespace} "
+    f"--requests=cpu={cpu_req_m}m,memory={mem_req_mi}Mi "
+    f"--limits=cpu={cpu_lim_m}m,memory={mem_lim_mi}Mi"
+)
+with open("${APPLY_CMD_FILE}", "w") as f:
+    f.write(apply_cmd + "\n")
 PYEOF
+
+if [[ "${APPLY}" == "true" ]]; then
+  echo ""
+  APPLY_CMD=$(cat "${APPLY_CMD_FILE}")
+  info "Applying recommendation …"
+  echo -e "  ${APPLY_CMD}"
+  eval "${APPLY_CMD}" && success "Resources updated. Waiting for rollout …" || { echo ""; error "oc set resources failed."; }
+  oc rollout status deployment/load-generator -n "${NAMESPACE}" --timeout=60s
+  echo ""
+  info "Verifying QoS class …"
+  QOS=$(oc get pod -n "${NAMESPACE}" -l app=load-generator -o jsonpath='{.items[0].status.qosClass}' 2>/dev/null || echo "unknown")
+  success "QoS class : ${QOS}"
+fi
