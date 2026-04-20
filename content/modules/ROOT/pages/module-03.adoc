@@ -189,26 +189,73 @@ The `load-generator` dropped from 102m CPU to 45m CPU (*56% performance degradat
 *Real-World Impact*: If this were a production API, response times would spike from 50ms to 500ms+, causing user-facing outages.
 ====
 
-=== Part 3: Observe CPU Throttling Metrics
+=== Download Lab Scripts
 
-Let's prove the throttling is happening using Prometheus:
+Download the right-sizer script before continuing. It is used for Parts 3 and 4.
 
-[source,bash,role=execute]
+[source,bash,subs="+attributes",role=execute]
 ----
-oc get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.spec.host}'
-----
-
-Open the Prometheus UI and run this query:
-
-[source,promql,subs="+attributes"]
-----
-rate(container_cpu_cfs_throttled_seconds_total{namespace="{namespace}", pod=~"load-generator.*"}[5m])
+mkdir -p ~/module-03 && cd ~/module-03
+BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
+curl -fsSO $BASE/content/modules/ROOT/examples/module-03/resource-right-sizer.sh
+chmod +x *.sh
+ls -lh
 ----
 
 .Sample Output
-[source,textinfo]
+[source,text]
 ----
-Value: 0.42  (42% of CPU time is being throttled)
+-rwxr-xr-x. 1 lab-user lab-user 4.1K Apr 20 resource-right-sizer.sh
+----
+
+=== Part 3: Observe CPU Throttling Metrics
+
+Let's prove the throttling is happening using Prometheus. Run the right-sizer script — it auto-discovers Prometheus, mints a token, and queries the throttling rate directly from the command line:
+
+[source,bash,subs="+attributes",role=execute]
+----
+NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
+----
+
+.Sample Output
+[source,text]
+----
+══════════════════════════════════════════════════
+  Module 3 — Resource Right-Sizer
+══════════════════════════════════════════════════
+[INFO]  Namespace    : capacity-workshop
+[INFO]  Pod selector : load-generator.*
+[INFO]  Window       : 7 days
+
+[INFO]  Step 1/4 — Locating Prometheus route …
+[OK]    Prometheus : https://prometheus-k8s-openshift-monitoring.apps.student.example.com
+
+[INFO]  Step 2/4 — Minting Prometheus service-account token …
+[OK]    Token acquired (1234 chars)
+
+[INFO]  Step 3/4 — Measuring CPU throttling rate …
+[OK]    Throttling rate : 0.420  (42.0% of CPU time throttled — SEVERE)
+[WARN]  Throttling above 5% indicates the CPU limit is too low for this workload.
+        Kernel CFS is pausing the container to stay within its CPU limit.
+
+[INFO]  Step 4/4 — Calculating 95th-percentile resource usage (7d window) …
+
+  ┌────────────────────────────────────────────────────────────┐
+  │              RIGHT-SIZING RECOMMENDATIONS                  │
+  ├────────────────────────────────────────────────────────────┤
+  │ P95 CPU usage (raw)       :    150.0m cores                │
+  │ P95 Memory usage (raw)    :     96.0Mi                     │
+  ├────────────────────────────────────────────────────────────┤
+  │ Recommended CPU request   :    150m  (= P95, rounded up)   │
+  │ Recommended CPU limit     :    300m  (= 2× request)        │
+  │ Recommended Memory request:    120Mi  (= P95 + 20% buffer) │
+  │ Recommended Memory limit  :    144Mi  (= P95 + 50% buffer) │
+  └────────────────────────────────────────────────────────────┘
+
+  Apply with:
+  oc set resources deployment load-generator -n capacity-workshop \
+    --requests=cpu=150m,memory=120Mi \
+    --limits=cpu=300m,memory=144Mi
 ----
 
 [WARNING]
@@ -226,37 +273,7 @@ When a pod exceeds its CPU limit (or when there's no limit but the node is satur
 
 === Part 4: The Fix - Right-Size Using Historical Data
 
-Now let's use Prometheus to determine what the `load-generator` *actually needs* based on historical usage.
-
-Run this query to find the 95th percentile CPU usage over the past 7 days:
-
-[source,promql,subs="+attributes"]
-----
-quantile_over_time(0.95,
-  rate(container_cpu_usage_seconds_total{namespace="{namespace}", pod=~"load-generator.*"}[5m])[7d:5m]
-)
-----
-
-.Sample Output
-[source,textinfo]
-----
-Value: 0.15  (150m CPU at 95th percentile)
-----
-
-Similarly for memory (95th percentile):
-
-[source,promql,subs="+attributes"]
-----
-quantile_over_time(0.95,
-  container_memory_working_set_bytes{namespace="{namespace}", pod=~"load-generator.*"}[7d:5m]
-) / 1024 / 1024
-----
-
-.Sample Output
-[source,textinfo]
-----
-Value: 96  (96Mi memory at 95th percentile)
-----
+The right-sizer script you ran in Part 3 has already queried the 95th-percentile CPU and memory usage over the past 7 days and printed the recommended values. The `RIGHT-SIZING RECOMMENDATIONS` table at the end of the script output shows the P95 raw values, the suggested requests and limits, and the exact `oc set resources` command to apply.
 
 [TIP]
 ====
@@ -434,7 +451,12 @@ oc get pod <pod-name> -n {namespace} -o jsonpath='{.status.containerStatuses[0].
 *OOMKilled Troubleshooting Checklist*:
 
 1. *Check memory limit*: `oc get pod <pod> -o jsonpath='{.spec.containers[0].resources.limits.memory}'`
-2. *Check actual usage before kill*: Query Prometheus for `container_memory_working_set_bytes` max before termination
+2. *Check actual usage before kill*: Run the right-sizer script with the pod name to see historical memory usage:
++
+[source,bash,subs="+attributes",role=execute]
+----
+NAMESPACE={namespace} POD_SELECTOR="<pod-name>" ~/module-03/resource-right-sizer.sh
+----
 3. *Increase memory limit* if usage legitimately exceeds limit
 4. *Investigate memory leak* if usage grows unbounded over time
 
