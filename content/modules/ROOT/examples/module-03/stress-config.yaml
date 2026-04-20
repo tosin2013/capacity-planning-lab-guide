@@ -14,7 +14,7 @@ jobs:
     namespacedIterations: false
     waitForDeletion: false
     maxWaitTimeout: 2m
-    jobPause: 0
+    jobPause: 0ss
     objects:
       - objectTemplate: stress-pod.yaml
         replicas: 1
