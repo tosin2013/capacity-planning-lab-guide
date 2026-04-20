@@ -359,37 +359,34 @@ The stress pod above is trying to use ~1000m CPU but is capped at 200m — the k
 
 === Part 4: The Fix - Right-Size Using Historical Data
 
-The right-sizer script you ran in Part 3 has already queried the 95th-percentile CPU and memory usage over the past 7 days and printed the recommended values. The `RIGHT-SIZING RECOMMENDATIONS` table at the end of the script output shows the P95 raw values, the suggested requests and limits, and the exact `oc set resources` command to apply.
+The right-sizer script you ran in Part 3 queried the 95th-percentile CPU and memory usage over the past 7 days. The `RIGHT-SIZING RECOMMENDATIONS` table and `Apply with:` command at the bottom of its output are your starting point — *your numbers will differ from anyone else's*, and that is the point. The right-sizer is reporting the truth about your specific workload history.
 
 [TIP]
 ====
-*Right-Sizing Strategy*:
-
-* *CPU Request*: Set to 95th percentile usage (e.g. `10m` in this environment)
-* *CPU Limit*: Set to 2× the request to allow bursts (e.g. `20m`)
-* *Memory Request*: Set to 95th percentile + 20% buffer (e.g. `16Mi`)
-* *Memory Limit*: Set to 95th percentile + 50% buffer (e.g. `24Mi`)
-
 *Why 95th percentile?*
 
-* 99th percentile includes rare spikes (over-provisioning)
-* 50th percentile (median) is too aggressive (frequent throttling)
-* 95th percentile balances efficiency with reliability
+The right-sizer bases recommendations on P95 of historical usage — not the peak, not the median:
+
+* *99th percentile*: captures rare spikes → over-provisioning, wasted capacity
+* *50th percentile (median)*: too aggressive → frequent throttling under normal load
+* *95th percentile*: covers 95% of real workload patterns while ignoring outliers
+
+A cluster that has seen heavy test traffic today will show higher P95 values than one running only baseline load. Both answers are correct for their environment.
 ====
 
-The right-sizer already printed the exact command you need — scroll up in your terminal to find the `Apply with:` block at the end of the load-generator right-sizer output (the run without `POD_SELECTOR`), then copy and paste that `oc set resources` command to apply it now.
+Scroll up in your terminal to find the `Apply with:` block at the end of the load-generator right-sizer output (the run *without* `POD_SELECTOR`), then copy and run that `oc set resources` command.
 
 [NOTE]
 ====
-If you scrolled past the output, re-run the right-sizer to get the command again:
+If you scrolled past the output, re-run the right-sizer to refresh the recommendation:
 
-[source,bash,subs="+attributes"]
+[source,bash,role=execute,subs="+attributes"]
 ----
 NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
 ----
 ====
 
-Verify the QoS class changed:
+After applying, verify the QoS class of the newly rolled-out pod:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
@@ -397,15 +394,11 @@ sleep 10
 oc get pod -n {namespace} -l app=load-generator -o jsonpath='{.items[0].status.qosClass}'
 ----
 
-.Sample Output
-[source,textinfo]
-----
-Burstable
-----
+You should see `Burstable` — the pod now has a request lower than its limit, which is the correct production pattern for a workload with variable CPU.
 
 [NOTE]
 ====
-To achieve *Guaranteed* QoS, you need `requests == limits`:
+To achieve *Guaranteed* QoS, requests must equal limits:
 
 [source,bash,subs="+attributes"]
 ----
@@ -414,27 +407,61 @@ oc set resources deployment critical-app -n {namespace} \
   --limits=cpu=200m,memory=256Mi
 ----
 
-This ensures:
-* Pod is protected from eviction
-* Pod gets exactly what it requested (no throttling)
-* Scheduler knows precise capacity requirements
+Use *Guaranteed* for latency-critical services that cannot tolerate throttling or eviction. For most applications, *Burstable* is the right choice — it allows CPU bursts while still giving the scheduler an accurate picture of your baseline needs.
 ====
+
+==== Experiment: What request value breaks HPA?
+
+Before continuing to Part 5, try deliberately setting *bad* request values and observe what happens to HPA in the next step. Understanding the failure mode is more valuable than getting the right answer on the first try.
+
+Set a request that is *far too high* — HPA will never fire even under full stress:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc set resources deployment load-generator -n {namespace} \
+  --requests=cpu=500m --limits=cpu=500m
+----
+
+Then set a request that is *far too low* — HPA will fire at idle:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc set resources deployment load-generator -n {namespace} \
+  --requests=cpu=1m --limits=cpu=500m
+----
+
+After each change, run `oc get hpa -n {namespace} load-generator` (once the HPA exists) and watch how the TARGETS percentage changes. Ask yourself: *does the number in TARGETS make sense given the request I just set?*
+
+When ready to continue, reset to the right-sizer recommendation:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
+----
+
+Copy and run the `Apply with:` command from the output.
 
 === Part 5: The Scale - Implement HPA
 
-Now that resources are right-sized, we can implement Horizontal Pod Autoscaling (HPA) safely.
+With an accurate request in place, the HPA controller has a meaningful baseline to work from.
 
 [IMPORTANT]
 ====
-*Why HPA Requires Accurate Requests*:
+*The Formula That Drives HPA*:
 
-HPA scales based on *percentage of CPU request*. If your request is:
+```
+Desired Replicas = ceil( Current Replicas × (Current CPU / CPU Request) / Target% )
+```
 
-* Too low: HPA triggers constantly (flapping)
-* Too high: HPA never triggers (waste)
-* Just right: HPA responds to real load changes
+HPA asks: *"How many copies would I need so that each one runs at exactly the target utilization?"*
 
-*Formula*: `Target Utilization = (Current CPU / CPU Request) × 100%`
+The request value is the denominator — change it and you change everything:
+
+* *Request too low* → percentage is always huge → HPA scales to max immediately (flapping)
+* *Request too high* → percentage is always tiny → HPA ignores real load
+* *Request matches actual usage* → percentage tracks real load → HPA fires at the right moment
+
+This is why right-sizing matters: it makes the formula meaningful.
 ====
 
 Create an HPA targeting 75% CPU utilization:
@@ -445,66 +472,67 @@ oc autoscale deployment load-generator -n {namespace} \
   --min=1 --max=5 --cpu 75%
 ----
 
-Verify HPA was created:
-
 [source,bash,role=execute,subs="+attributes"]
 ----
 oc get hpa -n {namespace}
 ----
 
-.Sample Output
-[source,textinfo]
-----
-NAME             REFERENCE                   TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
-load-generator   Deployment/load-generator   <unknown>/75%   1         5         1          10s
-----
+The TARGETS column may show `<unknown>` for ~30 seconds while the metrics server warms up — that is normal. Re-run until you see a real percentage. Note that number: it reflects your request value and your current load.
 
-[NOTE]
-====
-The TARGETS column shows `<unknown>` for a few seconds while the metrics server collects the first sample, then switches to a percentage. Once the pod has been running for ~30 seconds you can re-run `oc get hpa` and see a real value.
-====
-
-The HPA is watching but the load-generator is not yet under sustained stress. Now simulate a traffic spike by enabling continuous stress mode:
+Now apply sustained stress:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
 oc set env deployment/load-generator -n {namespace} TARGET_RPS=500
 ----
 
-In stress mode (`TARGET_RPS≥500`) the load-generator runs `wrk` continuously — no sleep between runs — with 8 threads and 500 connections. Wait 90 seconds for the new pod to roll out and two wrk cycles to complete, then check HPA status:
+In stress mode (`TARGET_RPS≥500`) the load-generator runs `wrk` continuously with 8 threads and 500 connections. Wait 90 seconds for the pod to roll out and the HPA to observe a full averaging window, then check:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
 oc get hpa -n {namespace} load-generator
 ----
 
-.Sample Output
-[source,textinfo]
-----
-NAME             REFERENCE                   TARGETS    MINPODS   MAXPODS   REPLICAS   AGE
-load-generator   Deployment/load-generator   140%/75%   1         5         2          2m
-----
-
 [TIP]
 ====
-*HPA Scaling Decision*:
+*Interpret your own numbers using the formula*:
+
+The TARGETS column shows `<actual%>/<threshold%>`. Plug your values into:
 
 ```
-Current CPU: ~14m sustained (continuous wrk -t8 -c500)
-Request:     10m per pod  (from the right-sizer recommendation)
-Utilization: 14m / 10m = 140% of request
-Target:      75%
-Desired Replicas: ceil(1 × 140 / 75) = ceil(1.87) = 2
+Desired Replicas = ceil( 1 × actual% / target% )
 ```
 
-HPA scaled from 1 → 2 replicas to spread the load and bring per-pod utilization down toward target.
+For example:
 
-After replicas stabilize:
-```
-Total CPU: ~14m distributed across 2 pods = ~7m per pod
-Utilization: 7m / 10m = 70% ✓ Within target
-```
+* `140%/75%` → `ceil(1.87)` = 2 replicas
+* `220%/75%` → `ceil(2.93)` = 3 replicas
+* `60%/75%` → `ceil(0.80)` = 1 replica (no scale needed)
+
+Does the REPLICAS count you observe match what the formula predicts? It should. If REPLICAS is still 1 and TARGETS is above 75%, wait another 30–60 seconds — HPA has a built-in stabilization window to prevent thrashing.
 ====
+
+==== Experiment: Tune the request, observe the HPA response
+
+The most effective way to build intuition is to deliberately change the request and predict the outcome *before* you run `oc get hpa`. Try each of these and verify your prediction:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+# Smaller request → HPA fires sooner, at lower load
+oc set resources deployment load-generator -n {namespace} \
+  --requests=cpu=2m --limits=cpu=500m
+oc get hpa -n {namespace} load-generator
+----
+
+[source,bash,role=execute,subs="+attributes"]
+----
+# Larger request → HPA fires later, or not at all
+oc set resources deployment load-generator -n {namespace} \
+  --requests=cpu=200m --limits=cpu=500m
+oc get hpa -n {namespace} load-generator
+----
+
+Each time, before running `oc get hpa`, write down your prediction: *given this request and the current CPU usage, what utilization percentage do I expect to see?* Then check if you were right. That prediction skill — reasoning about how request values affect scaling decisions — is what this lab is building.
 
 === Part 6: Debug OOMKilled Events
 
