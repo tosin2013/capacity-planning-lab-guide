@@ -1,0 +1,31 @@
+---
+# kube-burner pod template — CPU throttle demo
+# This pod runs a CPU burn loop and is intentionally capped at 200m.
+# The kernel CFS scheduler immediately throttles it, making
+# container_cpu_cfs_throttled_seconds_total visible in Prometheus.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cpu-throttle-demo-{{.Iteration}}-{{.Replica}}
+  labels:
+    app: cpu-throttle-demo
+    demo.redhat.com/application: capacity-workshop
+spec:
+  containers:
+  - name: stress
+    image: quay.io/prometheus/busybox:latest
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        echo "CPU Throttle Demo — will be throttled at 200m CPU limit"
+        while true; do
+          for i in $(seq 1 1000000); do echo $i > /dev/null; done
+        done
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+      limits:
+        cpu: 200m      # burn loop tries to use ~1000m; CFS caps it here
+        memory: 128Mi
+  restartPolicy: Never

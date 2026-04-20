@@ -58,7 +58,7 @@ When a node runs out of memory, Kubernetes evicts pods in this order:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc get pod -n {namespace} besteffort-app-* -o jsonpath='{.status.qosClass}'
+oc get pod -n {namespace} -l app=besteffort-app -o jsonpath='{.items[0].status.qosClass}'
 ----
 
 .Sample Output
@@ -71,7 +71,7 @@ Now check a properly configured pod:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc get pod -n {namespace} guaranteed-app-* -o jsonpath='{.status.qosClass}'
+oc get pod -n {namespace} -l app=guaranteed-app -o jsonpath='{.items[0].status.qosClass}'
 ----
 
 .Sample Output
@@ -94,6 +94,14 @@ ssh lab-user@{student-cluster-bastion}
 ----
 
 SSH password: `{student-cluster-password}`
+
+After connecting, log in to your student cluster:
+
+[source,bash,subs="+attributes",role=execute]
+----
+oc login {student-cluster-api} -u kubeadmin -p {student-cluster-password} \
+  --insecure-skip-tls-verify=true
+----
 ====
 
 In this hands-on lab, you'll experience the pain of zero-request deployments, then fix them using Prometheus historical data.
@@ -191,30 +199,87 @@ The `load-generator` dropped from 102m CPU to 45m CPU (*56% performance degradat
 
 === Download Lab Scripts
 
-Download the right-sizer script before continuing. It is used for Parts 3 and 4.
+Download the right-sizer script, kube-burner, and the stress configs before continuing.
 
 [source,bash,subs="+attributes",role=execute]
 ----
 mkdir -p ~/module-03 && cd ~/module-03
 BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
 curl -fsSO $BASE/content/modules/ROOT/examples/module-03/resource-right-sizer.sh
-chmod +x *.sh
+curl -fsSO $BASE/content/modules/ROOT/examples/module-03/stress-config.yaml
+curl -fsSO $BASE/content/modules/ROOT/examples/module-03/stress-pod.yaml
+chmod +x resource-right-sizer.sh
 ls -lh
 ----
 
 .Sample Output
 [source,text]
 ----
+-rw-r--r--. 1 lab-user lab-user  512 Apr 20 stress-config.yaml
+-rw-r--r--. 1 lab-user lab-user  480 Apr 20 stress-pod.yaml
 -rwxr-xr-x. 1 lab-user lab-user 4.1K Apr 20 resource-right-sizer.sh
+----
+
+Now download kube-burner — a Kubernetes workload generator used to deploy the throttling stress scenario:
+
+[source,bash,subs="+attributes",role=execute]
+----
+cd ~/module-03
+curl -sL https://github.com/kube-burner/kube-burner/releases/download/v2.6.1/kube-burner-V2.6.1-linux-x86_64.tar.gz \
+  | tar -xz kube-burner
+chmod +x kube-burner
+./kube-burner version
+----
+
+.Sample Output
+[source,text]
+----
+Version: 2.6.1
+Git Commit: ...
+Build Date: ...
 ----
 
 === Part 3: Observe CPU Throttling Metrics
 
-Let's prove the throttling is happening using Prometheus. Run the right-sizer script — it auto-discovers Prometheus, mints a token, and queries the throttling rate directly from the command line:
+CFS (Completely Fair Scheduler) throttling only fires when a container tries to use more than its own CPU *limit* — it is not caused by noisy neighbors. To generate a *real*, Prometheus-visible throttling event, you will use kube-burner to deploy a dedicated stress pod that has a tight CPU limit (200m) and immediately saturates it.
 
 [source,bash,subs="+attributes",role=execute]
 ----
-NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
+cd ~/module-03
+./kube-burner init -c stress-config.yaml
+----
+
+.Sample Output
+[source,text]
+----
+INFO[...] 📁 Creating object cpu-throttle-demo-1-1 in namespace capacity-workshop
+INFO[...] ✅ Job cpu-throttle-demo completed
+----
+
+Verify the stress pod is running and already hitting its CPU limit:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc get pod -n {namespace} -l app=cpu-throttle-demo
+oc adm top pod -n {namespace} -l app=cpu-throttle-demo
+----
+
+.Sample Output
+[source,textinfo]
+----
+NAME                        READY   STATUS    RESTARTS   AGE
+cpu-throttle-demo-1-1       1/1     Running   0          15s
+
+NAME                    CPU(cores)   MEMORY(bytes)
+cpu-throttle-demo-1-1   200m         2Mi            ← Capped at limit
+----
+
+Wait 90 seconds for Prometheus to scrape the throttling metric, then run the right-sizer against the stress pod:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+sleep 90
+POD_SELECTOR="cpu-throttle-demo.*" NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
 ----
 
 .Sample Output
@@ -224,49 +289,53 @@ NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
   Module 3 — Resource Right-Sizer
 ══════════════════════════════════════════════════
 [INFO]  Namespace    : capacity-workshop
-[INFO]  Pod selector : load-generator.*
+[INFO]  Pod selector : cpu-throttle-demo.*
 [INFO]  Window       : 7 days
 
 [INFO]  Step 1/4 — Locating Prometheus route …
 [OK]    Prometheus : https://prometheus-k8s-openshift-monitoring.apps.student.example.com
 
 [INFO]  Step 2/4 — Minting Prometheus service-account token …
-[OK]    Token acquired (1234 chars)
+[OK]    Token acquired (1287 chars)
 
 [INFO]  Step 3/4 — Measuring CPU throttling rate …
-[OK]    Throttling rate : 0.420  (42.0% of CPU time throttled — SEVERE)
+[OK]    Throttling rate : 0.810  (81.0% of CPU time throttled — SEVERE)
 [WARN]  Throttling above 5% indicates the CPU limit is too low for this workload.
         Kernel CFS is pausing the container to stay within its CPU limit.
 
-[INFO]  Step 4/4 — Calculating 95th-percentile resource usage (7d window) …
+[INFO]  Step 4/4 — Calculating 95th-percentile resource usage (1d window) …
 
   ┌────────────────────────────────────────────────────────────┐
   │              RIGHT-SIZING RECOMMENDATIONS                  │
   ├────────────────────────────────────────────────────────────┤
-  │ P95 CPU usage (raw)       :    150.0m cores                │
-  │ P95 Memory usage (raw)    :     96.0Mi                     │
+  │ P95 CPU usage (raw)       :    200.0m cores                │
+  │ P95 Memory usage (raw)    :      2.0Mi                     │
   ├────────────────────────────────────────────────────────────┤
-  │ Recommended CPU request   :    150m  (= P95, rounded up)   │
-  │ Recommended CPU limit     :    300m  (= 2× request)        │
-  │ Recommended Memory request:    120Mi  (= P95 + 20% buffer) │
-  │ Recommended Memory limit  :    144Mi  (= P95 + 50% buffer) │
+  │ Recommended CPU request   :    200m  (= P95, rounded up)   │
+  │ Recommended CPU limit     :    400m  (= 2× request)        │
+  │ Recommended Memory request:      8Mi  (= P95 + 20% buffer) │
+  │ Recommended Memory limit  :      8Mi  (= P95 + 50% buffer) │
   └────────────────────────────────────────────────────────────┘
+----
 
-  Apply with:
-  oc set resources deployment load-generator -n capacity-workshop \
-    --requests=cpu=150m,memory=120Mi \
-    --limits=cpu=300m,memory=144Mi
+Now run the right-sizer against your *actual* `load-generator` to get its right-sizing recommendation for Part 4:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
 ----
 
 [WARNING]
 ====
 *Throttling Explained*:
 
-When a pod exceeds its CPU limit (or when there's no limit but the node is saturated), the Linux CFS (Completely Fair Scheduler) throttles the container by pausing it periodically.
+When a container tries to use more CPU than its *limit*, the Linux CFS (Completely Fair Scheduler) throttles it by pausing the process periodically. This is a per-container mechanism — it has nothing to do with noisy neighbors.
 
 * `0.0` = No throttling (healthy)
 * `0.5` = 50% of CPU time is paused (severe degradation)
 * `1.0` = 100% throttled (essentially frozen)
+
+The stress pod above is trying to use ~1000m CPU but is capped at 200m — the kernel throttles it to 80%+ of its allowed time.
 
 *This is invisible to application developers* unless they're monitoring kernel metrics!
 ====
@@ -353,7 +422,7 @@ Create an HPA targeting 75% CPU utilization:
 [source,bash,role=execute,subs="+attributes"]
 ----
 oc autoscale deployment load-generator -n {namespace} \
-  --min=1 --max=5 --cpu-percent=75
+  --min=1 --max=5 --cpu 75%
 ----
 
 Verify HPA was created:
@@ -367,17 +436,17 @@ oc get hpa -n {namespace}
 [source,textinfo]
 ----
 NAME             REFERENCE                   TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
-load-generator   Deployment/load-generator   32%/75%   1         5         1          10s
+load-generator   Deployment/load-generator   64%/75%   1         5         1          10s
 ----
 
-Now let's simulate a traffic spike by scaling the load:
+At 64% utilization (16m / 25m request), the HPA is watching but not yet scaling. Now simulate a traffic spike by scaling the load to 500 connections:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
 oc set env deployment/load-generator -n {namespace} TARGET_RPS=500
 ----
 
-Wait 60 seconds and check HPA status:
+Wait 90 seconds for the new pod to roll out and wrk to ramp up to 500 connections, then check HPA status:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
@@ -388,7 +457,7 @@ oc get hpa -n {namespace} load-generator
 [source,textinfo]
 ----
 NAME             REFERENCE                   TARGETS    MINPODS   MAXPODS   REPLICAS   AGE
-load-generator   Deployment/load-generator   142%/75%   1         5         3          2m
+load-generator   Deployment/load-generator   140%/75%   1         5         2          2m
 ----
 
 [TIP]
@@ -396,17 +465,17 @@ load-generator   Deployment/load-generator   142%/75%   1         5         3   
 *HPA Scaling Decision*:
 
 ```
-Current CPU: 142% of request (213m / 150m)
+Current CPU: 140% of request (35m / 25m)
 Target: 75%
-Desired Replicas: ceil(1 × 142 / 75) = ceil(1.89) = 2
+Desired Replicas: ceil(1 × 140 / 75) = ceil(1.87) = 2
 ```
 
 HPA scaled from 1 → 2 replicas to bring utilization down to target.
 
 After the second replica stabilizes:
 ```
-Total CPU: 213m distributed across 2 pods = 106m per pod
-Utilization: 106m / 150m = 71% ✓ Within target
+Total CPU: ~35m distributed across 2 pods = ~17m per pod
+Utilization: 17m / 25m = 68% ✓ Within target
 ```
 ====
 

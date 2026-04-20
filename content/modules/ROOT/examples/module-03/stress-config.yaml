@@ -1,0 +1,20 @@
+---
+# kube-burner v2 job config — Module 3 CFS throttling demo
+# Deploys a cpu-throttle-demo pod that immediately hits its 200m CPU limit,
+# making container_cpu_cfs_throttled_seconds_total visible in Prometheus.
+global:
+  gc: false          # keep the pod running so Prometheus scrapes throttling data
+  waitWhenFinished: true
+  measurements: []   # no latency measurements needed for this demo
+
+jobs:
+  - name: cpu-throttle-demo
+    namespace: capacity-workshop
+    jobIterations: 1
+    namespacedIterations: false
+    waitForDeletion: false
+    maxWaitTimeout: 2m
+    jobPause: 0
+    objects:
+      - objectTemplate: stress-pod.yaml
+        replicas: 1
