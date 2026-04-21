@@ -10,7 +10,7 @@ infrastructure beyond what the base cluster provides.
 Installs and configures **OpenShift Lightspeed** (Module 8 prerequisite).
 
 Runs on `localhost` against the target cluster using `kubernetes.core.k8s`.
-Requires OCP 4.17+ and `cluster-admin` access.
+Requires OCP 4.21+ and `cluster-admin` access.
 
 #### Prerequisites
 

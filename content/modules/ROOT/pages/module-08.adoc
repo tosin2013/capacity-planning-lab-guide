@@ -210,7 +210,7 @@ In Modules 4 and 5 you worked through node density mathematics, etcd constraints
 [source,text]
 ----
 How do I safely increase the maximum number of pods per worker node beyond
-the default 250 on OpenShift 4.17? What are the risks and what should I
+the default 250 on OpenShift 4.21? What are the risks and what should I
 monitor after making the change?
 ----
 
@@ -609,7 +609,7 @@ These patterns consistently improve Lightspeed responses on capacity topics:
 
 *Specify the format*:: "Show the calculation step by step" or "Write a PromQL query" focuses the model on the output you need.
 
-*Ask for Red Hat specifics*:: "On OpenShift 4.17 specifically" or "using the OpenShift web console" narrows the answer to OCP-specific paths rather than generic Kubernetes.
+*Ask for Red Hat specifics*:: "On OpenShift 4.21 specifically" or "using the OpenShift web console" narrows the answer to OCP-specific paths rather than generic Kubernetes.
 
 *Iterate*:: If the first response is too generic, follow up with: "That was for a generic Kubernetes cluster. How does this differ on OpenShift where [specific feature] is available?"
 

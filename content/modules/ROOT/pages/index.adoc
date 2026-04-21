@@ -209,7 +209,7 @@ You should see after connecting:
 
 This workshop uses:
 
-* *OpenShift Container Platform*: 4.17+ (4.21+ recommended; 4.17+ required for the optional Module 8 Lightspeed lab)
+* *OpenShift Container Platform*: 4.21+
 * *Red Hat Advanced Cluster Management (RHACM)*: 2.16+
 * *Monitoring*: Prometheus, Thanos, Alertmanager, Grafana
 * *AI Assistant* _(Module 8, optional)_: OpenShift Lightspeed 1.0 backed by RHDP LiteMaaS (IBM Granite 3.2 8B / Qwen3 14B)

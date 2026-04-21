@@ -25,7 +25,7 @@
 #     | jq '.data[].id'
 #
 # Prerequisites:
-#   - OCP 4.17+ with cluster-admin access
+#   - OCP 4.21+ with cluster-admin access
 #   - KUBECONFIG pointing at the student cluster
 #   - ansible-galaxy collection install kubernetes.core
 

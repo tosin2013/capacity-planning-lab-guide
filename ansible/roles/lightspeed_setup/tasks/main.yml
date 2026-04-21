@@ -3,7 +3,7 @@
 # the RHDP LiteMaaS LiteLLM proxy as its LLM backend.
 #
 # Prerequisites:
-#   - OCP 4.17+ cluster (Lightspeed 1.0 requirement)
+#   - OCP 4.21+ cluster
 #   - kubernetes.core collection installed: ansible-galaxy collection install kubernetes.core
 #   - KUBECONFIG or oc login session with cluster-admin
 #   - litemaas_api_token set (non-empty string)

@@ -23,7 +23,7 @@ litemaas_model_primary: "openai/granite-3-2-8b-instruct"
 litemaas_model_comparison: "openai/qwen3-14b"
 
 # OLSConfig: whether to enable cluster interaction (MCP introspection).
-# This is a Technology Preview feature as of OCP 4.17.
+# This is a Technology Preview feature as of OCP 4.21.
 # When true, Lightspeed reads live cluster state via an MCP server and can
 # answer projection questions against real metrics.
 lightspeed_introspection_enabled: false
