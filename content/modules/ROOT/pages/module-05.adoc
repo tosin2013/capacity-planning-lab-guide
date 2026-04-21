@@ -192,7 +192,25 @@ ssh lab-user@{student-cluster-bastion}
 SSH password: `{student-cluster-password}`
 ====
 
-In this hands-on lab, you'll enable RHACM Observability, customize the metric allowlist to reduce costs, and build a multi-cluster capacity dashboard.
+In this hands-on lab, you'll enable RHACM Observability, customize the metric allowlist to reduce costs, and deploy a pre-built multi-cluster capacity dashboard — without clicking through any browser UI until the final step.
+
+=== Download Lab Files
+
+Download the Module 5 dashboard ConfigMap at the start. It is used in Part 4 to apply the dashboard to RHACM Grafana.
+
+[source,bash,subs="+attributes",role=execute]
+----
+mkdir -p ~/module-05 && cd ~/module-05
+BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
+curl -fsSO $BASE/content/modules/ROOT/examples/module-05/module-5-capacity-planning.yaml
+ls -lh
+----
+
+.Sample Output
+[source,text]
+----
+-rw-r--r--. 1 lab-user lab-user 6.5K Apr 21 module-5-capacity-planning.yaml
+----
 
 === Part 1: Verify RHACM Observability is Enabled
 
@@ -446,219 +464,147 @@ oc config use-context $STUDENT_CTX
 oc whoami
 ----
 
-=== Part 4: Build a Multi-Cluster Capacity Dashboard
+=== Part 4: Deploy the Multi-Cluster Capacity Dashboard
 
-Now let's create a custom Grafana dashboard that shows capacity metrics across all clusters.
+Push the pre-built capacity dashboard into RHACM Grafana using the same three-step context-switch pattern as Module 2 Part 4.
 
-In the RHACM Grafana UI:
+[NOTE]
+====
+*Why use a pre-built ConfigMap?*
 
-1. Click "+" → "Create Dashboard"
-2. Click "Add new panel"
+RHACM Grafana uses a `grafana-dashboard-loader` sidecar that watches for ConfigMaps labelled `grafana-custom-dashboard: "true"` in the `open-cluster-management-observability` namespace and imports them automatically.
+This is the GitOps-friendly approach to dashboard management — dashboards are version-controlled YAML, not UI click trails.
+The dashboard you downloaded in the "Download Lab Files" section contains all six capacity panels plus the showback panel from Part 7.
+====
 
-==== Panel 1: Pod Count by Cluster
+==== Step 4a — Log back into the hub
 
-Set the following:
+Your `$STUDENT_CTX` variable was set at the start of Part 1. Log into the hub cluster to get a token for `oc apply`:
 
-* *Panel Title*: "Total Pods by Cluster"
-* *Visualization*: Bar gauge
-* *Query*:
-
-[source,promql]
+[source,bash,subs="+attributes",role=execute]
 ----
-sum by (cluster) (kube_pod_info)
-----
-
-* *Legend*: `{{cluster}}`
-* *Unit*: "short" (pod count)
-* *Thresholds*:
-  - Green: 0-5000
-  - Yellow: 5000-8000
-  - Red: 8000+ (approaching etcd limit from Module 4)
-
-Click "Apply" to save the panel.
-
-==== Panel 2: CPU Request vs Usage (Fleet-Wide)
-
-Add a new panel with:
-
-* *Panel Title*: "CPU: Requested vs Used (All Clusters)"
-* *Visualization*: Time series
-* *Query A* (Requested):
-
-[source,promql]
-----
-sum(kube_pod_container_resource_requests{resource="cpu"})
+STUDENT_CTX=$(oc config current-context)
+echo "Student context: $STUDENT_CTX"
+oc login {hub_api_url} \
+  --username={hub_username} \
+  --password={hub_password} \
+  --insecure-skip-tls-verify=true
 ----
 
-* *Query B* (Used):
-
-[source,promql]
+.Sample Output
+[source,text]
 ----
-sum(rate(container_cpu_usage_seconds_total{container!=""}[5m]))
-----
-
-* *Legend*:
-  - Query A: "Requested CPU"
-  - Query B: "Actual CPU Usage"
-* *Unit*: "cores"
-
-Click "Apply".
-
-==== Panel 3: Memory Request vs Usage (Fleet-Wide)
-
-Add a new panel with:
-
-* *Panel Title*: "Memory: Requested vs Used (All Clusters)"
-* *Visualization*: Time series
-* *Query A* (Requested):
-
-[source,promql]
-----
-sum(kube_pod_container_resource_requests{resource="memory"})
+Student context: capacity-workshop/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin
+Login successful.
 ----
 
-* *Query B* (Used):
+==== Step 4b — Apply the dashboard ConfigMap
 
-[source,promql]
+[source,bash,role=execute]
 ----
-sum(container_memory_working_set_bytes{container!=""})
-----
-
-* *Legend*:
-  - Query A: "Requested Memory"
-  - Query B: "Actual Memory Usage"
-* *Unit*: "bytes" (Grafana will auto-format to GB)
-
-Click "Apply".
-
-==== Panel 4: Node Runway (Days Until Full)
-
-Add a new panel with:
-
-* *Panel Title*: "Capacity Runway by Cluster (Days)"
-* *Visualization*: Table
-* *Query*:
-
-[source,promql]
-----
-# Days until CPU capacity is exhausted based on 30-day growth rate
-(
-  sum by (cluster) (kube_node_status_allocatable{resource="cpu"})
-  -
-  sum by (cluster) (kube_pod_container_resource_requests{resource="cpu"})
-)
-/
-(
-  sum by (cluster) (increase(kube_pod_container_resource_requests{resource="cpu"}[30d]) / 30)
-)
+oc apply -f ~/module-05/module-5-capacity-planning.yaml \
+  -n open-cluster-management-observability
 ----
 
-* *Legend*: `{{cluster}}`
-* *Unit*: "days"
-* *Thresholds*:
-  - Red: <30 days
-  - Yellow: 30-90 days
-  - Green: >90 days
+.Sample Output
+[source,text]
+----
+configmap/module-5---capacity-planning created
+----
 
-Click "Apply".
+The `grafana-dashboard-loader` sidecar detects the new ConfigMap and imports all panels into the *Workshop* folder in production Grafana within a few seconds.
+
+==== Step 4c — Switch back to your student cluster
+
+[source,bash,role=execute]
+----
+oc config use-context $STUDENT_CTX
+oc whoami
+----
+
+.Sample Output
+[source,text]
+----
+Switched to context "capacity-workshop/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin".
+system:admin
+----
 
 [TIP]
 ====
-*Understanding the Runway Query*:
+*What's in the dashboard?*
 
-This query calculates:
+The ConfigMap contains seven panels — all using Thanos data from every managed cluster:
 
-```
-(Available Capacity - Current Usage) / Growth Rate = Days Until Full
-```
+[cols="1,2,3",options="header"]
+|===
+|Panel |Visualization |PromQL (key metric)
+|Total Pods by Cluster |Bar gauge |`sum by (cluster)(kube_pod_info)`
+|CPU: Requested vs Used |Time series (A/B) |`kube_pod_container_resource_requests{resource="cpu"}` vs `rate(container_cpu_usage_seconds_total[5m])`
+|Memory: Requested vs Used |Time series (A/B) |`kube_pod_container_resource_requests{resource="memory"}` vs `container_memory_working_set_bytes`
+|Capacity Runway (Days) |Table |`(allocatable - requests) / (increase([30d])/30)`
+|Pod Density (pods/node) |Stat |`kube_pod_info / kube_node_info{worker}`
+|etcd DB Size (MB) |Bar gauge |`etcd_debugging_mvcc_db_total_size_in_bytes / 1024 / 1024`
+|Top 10 Namespaces by CPU (30d) |Table |`topk(10, avg_over_time(...[30d]))`
+|===
 
-Example:
-* Available CPU: 100 cores
-* Current requests: 60 cores
-* 30-day growth: +5 cores
-
-```
-(100 - 60) / (5/30) = 40 / 0.167 = 240 days runway
-```
-
-*Caveats*:
-* Assumes linear growth (Module 2 explains why Pod Velocity is better)
-* Doesn't account for seasonal spikes
-* Requires at least 30 days of historical data
-
-*Use this as a quick health check, not a replacement for detailed forecasting.*
+The `cluster` dropdown defaults to *All*, giving a fleet-wide view. Select a specific cluster to scope any panel.
 ====
 
-==== Panel 5: Pod Density by Cluster
+=== Part 5: Log In to Grafana and View the Dashboard
 
-Add a new panel with:
+==== Step 5a — Open the Grafana URL
 
-* *Panel Title*: "Average Pod Density (pods/node)"
-* *Visualization*: Stat
-* *Query*:
+Open a new browser tab and navigate to the RHACM Grafana instance running on the hub:
 
-[source,promql]
+[source,text,subs="+attributes"]
 ----
-sum by (cluster) (kube_pod_info) / sum by (cluster) (kube_node_info{node_role_kubernetes_io_worker=""})
+{hub_grafana_url}
 ----
 
-* *Legend*: `{{cluster}}`
-* *Unit*: "short"
-* *Thresholds*:
-  - Green: 0-150 (healthy utilization)
-  - Yellow: 150-200 (approaching maxPods defaults)
-  - Red: 200+ (need to tune maxPods or add nodes)
+==== Step 5b — Authenticate with OpenShift
 
-Click "Apply".
+RHACM Grafana uses OpenShift OAuth — there is no separate Grafana username or password. On the login page:
 
-==== Panel 6: etcd Database Size by Cluster
+. Click *Log in with OpenShift*.
+. Choose the *workshop-students* identity provider.
+. Enter your hub credentials:
++
+[cols="1,2",options="header"]
+|===
+|Field |Value
+|Username |`{hub_username}`
+|Password |`{hub_password}`
+|===
+. Click *Log in* — you are redirected back to Grafana automatically.
 
-Add a new panel with:
+==== Step 5c — Navigate to the Module 5 dashboard
 
-* *Panel Title*: "etcd Database Size (MB)"
-* *Visualization*: Bar gauge (horizontal)
-* *Query*:
+In the left sidebar, click *Dashboards* → *Workshop* → *Module 5 — Multi-Cluster Capacity Planning*.
 
-[source,promql]
-----
-max by (cluster) (etcd_debugging_mvcc_db_total_size_in_bytes) / 1024 / 1024
-----
+You will see all seven panels populated with data from both the hub (`local-cluster`) and your student cluster:
+
+image::module-05-grafana-overview.png[Module 5 dashboard overview showing pod count, CPU and memory panels for local-cluster and student-01,align="center"]
+
+The capacity runway table shows days until CPU is exhausted at current growth rate — red means action required within 30 days:
+
+image::module-05-grafana-runway.png[Capacity Runway table showing days to full per cluster with colour-coded thresholds,align="center"]
+
+The etcd database size gauge confirms both clusters are well within the 8 GB hard limit:
+
+image::module-05-grafana-etcd.png[etcd Database Size bar gauge showing healthy values for local-cluster and student-01,align="center"]
+
+[TIP]
+====
+*Viewers can edit* is enabled in this Grafana instance. Click any panel title → *Edit* to inspect or modify the PromQL behind it — useful for adapting the dashboard to your own environment.
+====
 
 [NOTE]
 ====
-RHACM renames `etcd_mvcc_db_total_size_in_bytes` to `etcd_debugging_mvcc_db_total_size_in_bytes` when forwarding metrics to Thanos (see the `renames` field in the `observability-metrics-allowlist` ConfigMap). Always use the `etcd_debugging_*` name in Thanos/Grafana queries.
-====
+*GitOps dashboard management*:
 
-* *Legend*: `{{cluster}}`
-* *Unit*: "MB"
-* *Thresholds*:
-  - Green: 0-4096 (0-4GB, healthy)
-  - Yellow: 4096-6144 (4-6GB, monitor)
-  - Red: 6144+ (6GB+, critical - approaching 8GB limit from Module 4)
-
-Click "Apply".
-
-=== Part 5: Save and Share the Dashboard
-
-1. Click the "Save dashboard" icon (floppy disk) at the top
-2. Name it: "Multi-Cluster Capacity Planning"
-3. Click "Save"
-
-Now your dashboard is available to all RHACM users!
-
-[NOTE]
-====
-*Exporting Dashboards for GitOps*:
-
-To version-control this dashboard:
-
-1. Click "Dashboard settings" (gear icon)
-2. Click "JSON Model"
-3. Copy the JSON
-4. Save to Git repository (e.g., `grafana-dashboards/capacity-planning.json`)
-5. Use a GitOps tool (ArgoCD) to deploy dashboards automatically to new RHACM instances
-
-This is how mature platform teams manage observability at scale.
+The ConfigMap you applied is the canonical source of truth for this dashboard.
+To update a panel in a real environment: edit the YAML in Git → merge → CI/CD pipeline runs `oc apply`.
+No one needs Grafana editor access; the dashboard is code.
 ====
 
 === Part 6: Validate Cross-Cluster Queries
@@ -699,44 +645,35 @@ If you only see `{cluster="local-cluster"}`, it means no managed clusters are re
 
 === Part 7: Showback/Chargeback Reporting
 
-One powerful use case for multi-cluster observability is *showback* - reporting resource consumption back to application teams or business units.
+One powerful use case for multi-cluster observability is *showback* — reporting resource consumption back to application teams or business units.
 
-Create a new dashboard panel:
+The dashboard you applied in Part 4 already includes a *Top 10 Namespaces by Avg CPU Request (30d Showback)* table in the bottom row. Navigate back to Grafana and scroll down to view it.
 
-* *Panel Title*: "CPU Cost by Namespace (Top 10)"
-* *Visualization*: Pie chart
-* *Query*:
+The panel uses this PromQL:
 
 [source,promql]
 ----
 topk(10,
-  sum by (namespace) (
+  sum by (namespace, cluster) (
     avg_over_time(kube_pod_container_resource_requests{resource="cpu"}[30d])
   )
 )
 ----
 
-* *Legend*: `{{namespace}}`
-* *Unit*: "cores"
+This identifies the ten namespaces that consumed the most CPU resources over the last 30 days across all managed clusters — the foundation of chargeback and capacity showback reports.
 
-Now add a second panel:
-
-* *Panel Title*: "Monthly Cost by Namespace (Estimated)"
-* *Visualization*: Table
-* *Query*:
+To extend this into an estimated *monthly cost*, multiply by your cost-per-core:
 
 [source,promql]
 ----
-sum by (namespace, cluster) (
-  avg_over_time(kube_pod_container_resource_requests{resource="cpu"}[30d])
-) * 50  # Assume $50/core/month (adjust to your actual rate)
+topk(10,
+  sum by (namespace, cluster) (
+    avg_over_time(kube_pod_container_resource_requests{resource="cpu"}[30d])
+  )
+) * 50
 ----
 
-* *Legend*: Custom fields:
-  - `{{namespace}}` → "Namespace"
-  - `{{cluster}}` → "Cluster"
-  - Value → "Monthly Cost (USD)"
-* *Unit*: "currency (USD)"
+Substitute `50` with your actual `$/core/month` value.
 
 [TIP]
 ====
@@ -760,19 +697,13 @@ $50,000 / 1000 = $50/core/month
 * Divide by total core-years
 
 Example:
-* Server cost: $10,000 (64 cores)
-* 3-year lifespan
-* $2,000/year maintenance
+* Server cost: $10,000 (64 cores), 3-year lifespan, $2,000/year maintenance:
 
 ```
 ($10,000 / 3 + $2,000) / 64 = $62/core/year = $5.17/core/month
 ```
 
-*This is a simplified model.* For production FinOps, also factor in:
-* Storage costs (PVs)
-* Network egress costs
-* Load balancer costs
-* Overhead allocation (control plane, monitoring, logging)
+*This is a simplified model.* For production FinOps, also factor in storage, network egress, load balancers, and control-plane overhead allocation.
 ====
 
 == Lab 5 Summary: Your Multi-Cluster Observatory
@@ -781,8 +712,9 @@ You've now built:
 
 ✅ Verified RHACM Observability installation and components
 ✅ Customized metric allowlist to reduce storage costs by 95%
-✅ Created a multi-cluster capacity dashboard with 6 panels
-✅ Implemented showback/chargeback reporting for namespace-level cost visibility
+✅ Applied a pre-built multi-cluster capacity dashboard via `oc apply` (GitOps pattern)
+✅ Viewed fleet-wide capacity, runway, and etcd health panels in RHACM Grafana
+✅ Reviewed showback data identifying top namespaces by CPU consumption
 ✅ Validated cross-cluster PromQL queries using the `cluster` label
 
 === Real-World Application
