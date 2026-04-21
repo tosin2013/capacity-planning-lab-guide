@@ -8,8 +8,6 @@ metadata:
     # for user-created dashboards.  Do NOT use general-folder: "true" — that label is
     # reserved for RHACM's own built-in dashboards and is not re-checked for custom ones.
     grafana-custom-dashboard: "true"
-  annotations:
-    observability.open-cluster-management.io/dashboard-folder: "Workshop"
 data:
   module-5---capacity-planning.json: |
     {

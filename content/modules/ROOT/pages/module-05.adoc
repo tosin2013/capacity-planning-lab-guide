@@ -579,7 +579,7 @@ RHACM Grafana uses OpenShift OAuth — there is no separate Grafana username or 
 
 ==== Step 5c — Navigate to the Module 5 dashboard
 
-In the left sidebar, click *Dashboards* → *Workshop* → *Module 5 — Multi-Cluster Capacity Planning*.
+In the left sidebar, click *Dashboards* → *Custom* → *Module 5 — Multi-Cluster Capacity Planning*.
 
 You will see all seven panels populated with data from both the hub (`local-cluster`) and your student cluster:
 
