@@ -542,7 +542,7 @@ For each response, evaluate against this rubric:
 |&#x2610;
 |===
 
-Fill in a checkmark ({openshift-tooltip-icon}) or leave blank for each cell based on what you observe.
+Tick each box (&#x2611;) or leave it empty (&#x2610;) based on what you observe.
 
 === Discussion: Why does model choice matter?
 
