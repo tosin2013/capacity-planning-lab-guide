@@ -114,7 +114,7 @@ For capacity planning, you only need:
 |`container_cpu_usage_seconds_total`, `container_memory_working_set_bytes`
 
 |*etcd Health*
-|`etcd_mvcc_db_total_size_in_bytes`, `etcd_server_has_leader`
+|`etcd_debugging_mvcc_db_total_size_in_bytes`, `etcd_server_has_leader`
 
 |*Deployment Scale*
 |`kube_deployment_spec_replicas`, `kube_deployment_status_replicas_available`
@@ -196,26 +196,16 @@ In this hands-on lab, you'll enable RHACM Observability, customize the metric al
 
 === Part 1: Verify RHACM Observability is Enabled
 
-First, check if observability is already enabled on your hub cluster:
+The observability components run on the *hub* cluster. Switch context to the hub before running these checks — this follows the same pattern as Module 2 Part 4:
 
-[source,bash,role=execute]
+[source,bash,subs="+attributes",role=execute]
 ----
-oc get multiclusterobservability -A
-----
-
-.Sample Output (Observability Enabled)
-[source,textinfo]
-----
-NAMESPACE                              NAME              STATUS   AGE
-open-cluster-management-observability  observability     Ready    5d
-----
-
-If you see `Ready` status, observability is enabled. If not, you'll see:
-
-.Sample Output (Observability Not Enabled)
-[source,textinfo]
-----
-No resources found
+STUDENT_CTX=$(oc config current-context)
+echo "Student context saved: $STUDENT_CTX"
+oc login {hub_api_url} \
+  --username={hub_username} \
+  --password={hub_password} \
+  --insecure-skip-tls-verify=true
 ----
 
 [NOTE]
@@ -452,8 +442,8 @@ The `metrics-collector-deployment` on each managed cluster detects the change wi
 
 [source,bash,role=execute]
 ----
-oc config use-context $(oc config get-contexts -o name | grep student | head -1) 2>/dev/null \
-  || echo "Switch back to your student cluster context when finished."
+oc config use-context $STUDENT_CTX
+oc whoami
 ----
 
 === Part 4: Build a Multi-Cluster Capacity Dashboard
@@ -631,8 +621,13 @@ Add a new panel with:
 
 [source,promql]
 ----
-max by (cluster) (etcd_mvcc_db_total_size_in_bytes) / 1024 / 1024
+max by (cluster) (etcd_debugging_mvcc_db_total_size_in_bytes) / 1024 / 1024
 ----
+
+[NOTE]
+====
+RHACM renames `etcd_mvcc_db_total_size_in_bytes` to `etcd_debugging_mvcc_db_total_size_in_bytes` when forwarding metrics to Thanos (see the `renames` field in the `observability-metrics-allowlist` ConfigMap). Always use the `etcd_debugging_*` name in Thanos/Grafana queries.
+====
 
 * *Legend*: `{{cluster}}`
 * *Unit*: "MB"
