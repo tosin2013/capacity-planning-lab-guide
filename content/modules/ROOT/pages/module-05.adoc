@@ -202,14 +202,14 @@ Download the Module 5 dashboard ConfigMap at the start. It is used in Part 4 to 
 ----
 mkdir -p ~/module-05 && cd ~/module-05
 BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
-curl -fsSO $BASE/content/modules/ROOT/examples/module-05/module-5-capacity-planning.yaml
+curl -fsSO $BASE/content/modules/ROOT/examples/module-05/module-5---multi-cluster-capacity-planning.yaml
 ls -lh
 ----
 
 .Sample Output
 [source,text]
 ----
--rw-r--r--. 1 lab-user lab-user 6.5K Apr 21 module-5-capacity-planning.yaml
+-rw-r--r--. 1 lab-user lab-user 7.0K Apr 21 module-5---multi-cluster-capacity-planning.yaml
 ----
 
 === Part 1: Verify RHACM Observability is Enabled
@@ -502,14 +502,14 @@ Login successful.
 
 [source,bash,role=execute]
 ----
-oc apply -f ~/module-05/module-5-capacity-planning.yaml \
+oc apply -f ~/module-05/module-5---multi-cluster-capacity-planning.yaml \
   -n open-cluster-management-observability
 ----
 
 .Sample Output
 [source,text]
 ----
-configmap/module-5---capacity-planning created
+configmap/module-5---multi-cluster-capacity-planning created
 ----
 
 The `grafana-dashboard-loader` sidecar detects the new ConfigMap and imports all panels into the *Workshop* folder in production Grafana within a few seconds.
