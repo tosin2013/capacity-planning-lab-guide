@@ -194,18 +194,25 @@ You should see after connecting:
 |Exercise
 
 |18:00
-|*Wrap-up*
+|*Wrap-up & Q&A*
 |
 |
+
+|18:30 _(optional)_
+|xref:module-08.adoc[Module 8: AI-Assisted Capacity Operations _(Optional)_]
+|OpenShift Lightspeed as a forecasting co-pilot — developer, infra & planning queries; granite vs. qwen3 model comparison
+|Lab
+
 |===
 
 == Technology Stack
 
 This workshop uses:
 
-* *OpenShift Container Platform*: 4.21+
+* *OpenShift Container Platform*: 4.17+ (4.21+ recommended; 4.17+ required for the optional Module 8 Lightspeed lab)
 * *Red Hat Advanced Cluster Management (RHACM)*: 2.16+
 * *Monitoring*: Prometheus, Thanos, Alertmanager, Grafana
+* *AI Assistant* _(Module 8, optional)_: OpenShift Lightspeed 1.0 backed by RHDP LiteMaaS (IBM Granite 3.2 8B / Qwen3 14B)
 
 == Getting Started
 
