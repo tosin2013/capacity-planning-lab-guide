@@ -583,15 +583,15 @@ In the left sidebar, click *Dashboards* → *Custom* → *Module 5 — Multi-Clu
 
 You will see all seven panels populated with data from both the hub (`local-cluster`) and your student cluster:
 
-image::module-05-grafana-overview.png[Module 5 dashboard overview showing pod count, CPU and memory panels for local-cluster and student-01,align="center"]
+image::module-05-grafana-overview.png[Module 5 dashboard — top two rows showing Total Pods by Cluster (local-cluster: 416, student-01: 300), CPU Requested vs Used time series, Memory Requested vs Used time series, and Capacity Runway table,align="center"]
 
-The capacity runway table shows days until CPU is exhausted at current growth rate — red means action required within 30 days:
+The runway table shows `-∞` when a cluster's CPU request growth rate is zero or negative — meaning the cluster has infinite runway at its current trajectory. Clusters with real workload growth will show a finite number of days.
 
-image::module-05-grafana-runway.png[Capacity Runway table showing days to full per cluster with colour-coded thresholds,align="center"]
+image::module-05-grafana-runway.png[Same dashboard view highlighting the Capacity Runway table in the top-right quadrant with red/yellow/green colour coding,align="center"]
 
-The etcd database size gauge confirms both clusters are well within the 8 GB hard limit:
+The bottom row shows pod density and etcd health across both clusters, plus the 30-day showback table:
 
-image::module-05-grafana-etcd.png[etcd Database Size bar gauge showing healthy values for local-cluster and student-01,align="center"]
+image::module-05-grafana-etcd.png[Dashboard bottom section — Average Pod Density stat (local-cluster: 139, student-01: 100), etcd Database Size bar gauge (local-cluster: 429 MB, student-01: 76.5 MB), and Top 10 Namespaces by CPU showback table,align="center"]
 
 [TIP]
 ====
