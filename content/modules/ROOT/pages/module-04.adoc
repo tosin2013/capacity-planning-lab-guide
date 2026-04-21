@@ -448,6 +448,40 @@ EOF
 kubeletconfig.machineconfiguration.openshift.io/set-max-pods-500 created
 ----
 
+[NOTE]
+.Compact & SNO Clusters: Verify the MCP target
+====
+On *3-node compact clusters* and *SNO*, every node has both `master` and `worker` roles, but the MCO assigns them to the `master` MachineConfigPool — the `worker` pool has 0 machines. If you apply a KubeletConfig that targets `worker`, it generates a MachineConfig but applies it to no nodes, so `maxPods` will not change.
+
+Check which pool your nodes actually belong to:
+
+[source,bash,role=execute]
+----
+oc get mcp
+----
+
+If `worker` shows `MACHINECOUNT: 0`, re-apply the KubeletConfig targeting the `master` pool instead:
+
+[source,bash,role=execute]
+----
+cat <<EOF | oc apply -f -
+apiVersion: machineconfiguration.openshift.io/v1
+kind: KubeletConfig
+metadata:
+  name: set-max-pods-500
+spec:
+  machineConfigPoolSelector:
+    matchLabels:
+      pools.operator.machineconfiguration.openshift.io/master: ""
+  kubeletConfig:
+    maxPods: 500
+EOF
+----
+
+[WARNING]
+On a compact or SNO cluster this will trigger a reboot of *all* nodes (they are also control-plane nodes). Expect 10–15 minutes of API unavailability while the single node restarts.
+====
+
 [IMPORTANT]
 ====
 *What Just Happened?*
@@ -540,7 +574,7 @@ Now deploy the mass-scheduling test:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc create deployment density-test --image=registry.access.redhat.com/ubi9/ubi-micro:latest --replicas=400 -n {namespace}
+oc create deployment density-test --image=registry.access.redhat.com/ubi9/ubi-micro:latest --replicas=400 -n {namespace} -- sleep infinity
 oc set resources deployment density-test -n {namespace} --requests=cpu=10m,memory=16Mi --limits=cpu=50m,memory=32Mi
 ----
 
@@ -644,16 +678,19 @@ Calculate overhead per pod:
 
 [source,bash,role=execute]
 ----
-echo "Node: ip-10-0-155-132"
-echo "Memory usage: 7932Mi (27% of 29GB)"
-echo "Pod count: $(oc get pods -A -o json | jq -r '.items[] | select(.spec.nodeName == "ip-10-0-155-132.us-east-2.compute.internal") | .metadata.name' | wc -l) pods"
+NODE=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[0].metadata.name}')
+MEM=$(oc adm top nodes "$NODE" --no-headers | awk '{print $4, $5}')
+POD_COUNT=$(oc get pods -A --field-selector spec.nodeName="$NODE" --no-headers | wc -l)
+echo "Node: $NODE"
+echo "Memory usage: $MEM"
+echo "Pod count: $POD_COUNT pods"
 ----
 
 .Sample Output
 [source,textinfo]
 ----
-Node: ip-10-0-155-132
-Memory usage: 7932Mi (27% of 29GB)
+Node: ip-10-0-28-47.us-east-2.compute.internal
+Memory usage: 7932Mi 27%
 Pod count: 176 pods
 ----
 
