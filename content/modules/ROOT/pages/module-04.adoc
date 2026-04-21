@@ -424,43 +424,22 @@ On a 32GB node:
 
 === Part 3: Increase maxPods to 500
 
-Now we'll create a custom KubeletConfig to increase the pod limit:
-
-[source,bash,role=execute]
-----
-cat <<EOF | oc apply -f -
-apiVersion: machineconfiguration.openshift.io/v1
-kind: KubeletConfig
-metadata:
-  name: set-max-pods-500
-spec:
-  machineConfigPoolSelector:
-    matchLabels:
-      pools.operator.machineconfiguration.openshift.io/worker: ""
-  kubeletConfig:
-    maxPods: 500
-EOF
-----
-
-.Sample Output
-[source,textinfo]
-----
-kubeletconfig.machineconfiguration.openshift.io/set-max-pods-500 created
-----
-
-[NOTE]
-.Compact & SNO Clusters: Verify the MCP target
-====
-On *3-node compact clusters* and *SNO*, every node has both `master` and `worker` roles, but the MCO assigns them to the `master` MachineConfigPool — the `worker` pool has 0 machines. If you apply a KubeletConfig that targets `worker`, it generates a MachineConfig but applies it to no nodes, so `maxPods` will not change.
-
-Check which pool your nodes actually belong to:
+First, confirm which MachineConfigPool owns your nodes — this determines the selector to use:
 
 [source,bash,role=execute]
 ----
 oc get mcp
 ----
 
-If `worker` shows `MACHINECOUNT: 0`, re-apply the KubeletConfig targeting the `master` pool instead:
+.Sample Output (this lab — compact cluster)
+[source,textinfo]
+----
+NAME     CONFIG                                             UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT
+master   rendered-master-abc123                             True      False      False      3              3                   3
+worker   rendered-worker-def456                             True      False      False      0              0                   0
+----
+
+The `worker` pool shows `MACHINECOUNT: 0` because this is a compact cluster — all nodes carry both `master` and `worker` roles but are assigned to the `master` MachineConfigPool. Apply the KubeletConfig targeting `master`:
 
 [source,bash,role=execute]
 ----
@@ -478,8 +457,31 @@ spec:
 EOF
 ----
 
-[WARNING]
-On a compact or SNO cluster this will trigger a reboot of *all* nodes (they are also control-plane nodes). Expect 10–15 minutes of API unavailability while the single node restarts.
+.Sample Output
+[source,textinfo]
+----
+kubeletconfig.machineconfiguration.openshift.io/set-max-pods-500 created
+----
+
+[NOTE]
+.SNO Clusters
+====
+Single Node OpenShift uses the same `master` MCP — the command above is identical. Because there is only *one* node (which is also the control plane), the MCO will reboot it. Expect *10–15 minutes* of API unavailability. Your Showroom lab guide will remain accessible during the reboot.
+====
+
+[NOTE]
+.Standard Multi-Node Clusters (dedicated workers)
+====
+On a standard cluster with separate worker nodes, `oc get mcp` will show `MACHINECOUNT: <N>` for the `worker` pool. Target `worker` instead of `master`:
+
+[source,yaml,role=copypaste]
+----
+  machineConfigPoolSelector:
+    matchLabels:
+      pools.operator.machineconfiguration.openshift.io/worker: ""
+----
+
+Only worker nodes are rebooted — control-plane nodes are unaffected.
 ====
 
 [IMPORTANT]
@@ -489,17 +491,17 @@ On a compact or SNO cluster this will trigger a reboot of *all* nodes (they are 
 The Machine Config Operator (MCO) will:
 
 1. Generate a new MachineConfig with the maxPods setting
-2. Roll out the change to worker nodes *one at a time* (to avoid downtime)
+2. Roll out the change to nodes in the targeted pool *one at a time* (to avoid downtime)
 3. Each node will:
    - Drain all pods
    - Reboot with the new kubelet configuration
    - Rejoin the cluster
 
-*Expected Duration*: 10-15 minutes per node (30-45 minutes total for a 3-node cluster)
+*Expected Duration*: 10-15 minutes per node (30-45 minutes total for a 3-node compact cluster)
 
 *Watch the rollout*:
 ```bash
-watch oc get mcp worker
+watch oc get mcp master
 ```
 ====
 
@@ -507,17 +509,17 @@ Monitor the Machine Config Pool update:
 
 [source,bash,role=execute]
 ----
-oc get mcp worker -w
+oc get mcp master -w
 ----
 
 .Sample Output
 [source,textinfo]
 ----
 NAME     CONFIG                                             UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT
-worker   rendered-worker-abc123                             True      False      False      3              3                   3
-worker   rendered-worker-def456                             False     True       False      3              2                   1
-worker   rendered-worker-def456                             False     True       False      3              1                   2
-worker   rendered-worker-def456                             True      False      False      3              3                   3
+master   rendered-master-abc123                             True      False      False      3              3                   3
+master   rendered-master-def456                             False     True       False      3              2                   1
+master   rendered-master-def456                             False     True       False      3              1                   2
+master   rendered-master-def456                             True      False      False      3              3                   3
 ----
 
 Press `Ctrl+C` once UPDATED changes back to `True`.
@@ -526,27 +528,27 @@ Now verify maxPods increased:
 
 [source,bash,role=execute]
 ----
-oc get nodes -o json | jq -r '.items[] | select(.metadata.labels["node-role.kubernetes.io/worker"] == "") | "\(.metadata.name)\t\(.status.capacity.pods)"' | head -3
+oc get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.capacity.pods}{"\n"}{end}'
 ----
 
 .Sample Output
 [source,textinfo]
 ----
-ip-10-0-145-209.us-east-2.compute.internal	500
-ip-10-0-155-132.us-east-2.compute.internal	500
-ip-10-0-174-87.us-east-2.compute.internal	500
+ip-10-0-28-47.us-east-2.compute.internal    500
+ip-10-0-58-247.us-east-2.compute.internal   500
+ip-10-0-95-86.us-east-2.compute.internal    500
 ----
 
 [TIP]
 ====
 *Success Criteria*:
-* All worker nodes now show `500` for pod capacity
-* UPDATED column in `oc get mcp worker` is `True`
+* All nodes now show `500` for pod capacity
+* UPDATED column in `oc get mcp master` is `True`
 * All pods have rescheduled successfully
 
 If any node shows DEGRADED=True, check:
 ```bash
-oc get mc -l machineconfiguration.openshift.io/role=worker --sort-by=.metadata.creationTimestamp | tail -1
+oc get mc -l machineconfiguration.openshift.io/role=master --sort-by=.metadata.creationTimestamp | tail -1
 oc describe node <degraded-node-name>
 ```
 ====
