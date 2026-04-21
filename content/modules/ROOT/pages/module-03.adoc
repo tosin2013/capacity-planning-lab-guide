@@ -485,39 +485,72 @@ oc get hpa -n {namespace} load-generator
 The TARGETS column shows `<actual%>/<threshold%>`. Plug your values into:
 
 ```
-Desired Replicas = ceil( 1 × actual% / target% )
+Desired Replicas = ceil( Current Replicas × actual% / target% )
 ```
 
-For example:
+The result depends entirely on your P95-sized request. A right-sized request tracks your actual workload closely, so the percentage may stay below 75% — which means the HPA correctly decided no scale-out was needed. That is not a failure; it is the formula working as designed.
 
-* `140%/75%` → `ceil(1.87)` = 2 replicas
-* `220%/75%` → `ceil(2.93)` = 3 replicas
-* `60%/75%` → `ceil(0.80)` = 1 replica (no scale needed)
+* `40%/75%` → `ceil(1 × 0.53)` = 1 replica — workload fits, no scale needed
+* `140%/75%` → `ceil(1 × 1.87)` = 2 replicas — workload exceeds one copy's capacity
+* `333%/75%` → `ceil(1 × 4.44)` = 5 replicas — request too small, HPA flaps to max
 
-Does the REPLICAS count you observe match what the formula predicts? It should. If REPLICAS is still 1 and TARGETS is above 75%, wait another 30–60 seconds — HPA has a built-in stabilization window to prevent thrashing.
+Does the REPLICAS count you observe match what the formula predicts? If REPLICAS is still 1 and TARGETS is above 75%, wait another 30–60 seconds — HPA has a built-in stabilization window to prevent thrashing.
 ====
 
 ==== Experiment: Tune the request, observe the HPA response
 
-The most effective way to build intuition is to deliberately change the request and predict the outcome *before* you run `oc get hpa`. Try each of these and verify your prediction:
+This is the primary HPA demonstration. The most effective way to build intuition is to deliberately change the request and *predict the outcome before you run `oc get hpa`*. Try each of these in order:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-# Smaller request → HPA fires sooner, at lower load
+# Step A: Tiny request → HPA fires immediately at extreme percentage
 oc set resources deployment load-generator -n {namespace} \
   --requests=cpu=2m --limits=cpu=500m
+----
+
+Wait 60 seconds, then check:
+
+[source,bash,role=execute,subs="+attributes"]
+----
 oc get hpa -n {namespace} load-generator
+----
+
+.Expected: TARGETS well above 75%, REPLICAS scales toward max (5)
+[source,textinfo]
+----
+NAME             REFERENCE                   TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
+load-generator   Deployment/load-generator   cpu: 333%/75%   1         5         5          ...
 ----
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-# Larger request → HPA fires later, or not at all
+# Step B: Large request → HPA goes silent, percentage near zero
 oc set resources deployment load-generator -n {namespace} \
   --requests=cpu=200m --limits=cpu=500m
+----
+
+Wait 60 seconds, then check:
+
+[source,bash,role=execute,subs="+attributes"]
+----
 oc get hpa -n {namespace} load-generator
 ----
 
-Each time, before running `oc get hpa`, write down your prediction: *given this request and the current CPU usage, what utilization percentage do I expect to see?* Then check if you were right. That prediction skill — reasoning about how request values affect scaling decisions — is what this lab is building.
+.Expected: TARGETS near 0%, REPLICAS scales back down to min (1)
+[source,textinfo]
+----
+NAME             REFERENCE                   TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+load-generator   Deployment/load-generator   cpu: 0%/75%   1         5         1          ...
+----
+
+For each change, write down your prediction *before* running `oc get hpa` — given this request and the current CPU usage, what utilization percentage do you expect? Then check if you were right. That prediction skill — reasoning about how request values affect scaling decisions — is what this lab is building.
+
+When you have finished exploring, reset `load-generator` back to its right-sized values before continuing:
+
+[source,bash,subs="+attributes",role=execute]
+----
+NAMESPACE={namespace} APPLY=true ~/module-03/resource-right-sizer.sh
+----
 
 === Part 6: Debug OOMKilled Events
 
