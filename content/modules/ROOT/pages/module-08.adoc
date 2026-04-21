@@ -514,32 +514,32 @@ For each response, evaluate against this rubric:
 |Criterion |Granite 3.2 8B |Qwen3 14B
 
 |Answers the question directly without unnecessary preamble
-|{openshift-tooltip-icon}
-|{openshift-tooltip-icon}
+|&#x2610;
+|&#x2610;
 
 |Shows calculation steps (for maths questions)
-|
-|
+|&#x2610;
+|&#x2610;
 
 |Uses Red Hat / OCP-specific terminology correctly
-|
-|
+|&#x2610;
+|&#x2610;
 
 |Provides working PromQL (for metric queries)
-|
-|
+|&#x2610;
+|&#x2610;
 
 |Explains reasoning, not just the answer
-|
-|
+|&#x2610;
+|&#x2610;
 
 |Response length is appropriate (not too short, not padded)
-|
-|
+|&#x2610;
+|&#x2610;
 
 |Executive language tone (for Query 5)
-|
-|
+|&#x2610;
+|&#x2610;
 |===
 
 Fill in a checkmark ({openshift-tooltip-icon}) or leave blank for each cell based on what you observe.
