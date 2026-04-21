@@ -1,0 +1,158 @@
+---
+# Installs the OpenShift Lightspeed Operator via OLM and configures it to use
+# the RHDP LiteMaaS LiteLLM proxy as its LLM backend.
+#
+# Prerequisites:
+#   - OCP 4.17+ cluster (Lightspeed 1.0 requirement)
+#   - kubernetes.core collection installed: ansible-galaxy collection install kubernetes.core
+#   - KUBECONFIG or oc login session with cluster-admin
+#   - litemaas_api_token set (non-empty string)
+#
+# Token provisioning in RHDP:
+#   AgnosticD calls rhpds.litellm_virtual_keys during provisioning to create a
+#   virtual key named "virtkey-{{ guid }}" with the "lab-prod" package
+#   (Granite + Mistral, 90 days). The resulting key is stored in agnosticd_user_info
+#   and should be passed as litemaas_api_token to this role.
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - litemaas_api_token | length > 0
+    fail_msg: >
+      litemaas_api_token must be set to a non-empty LiteMaaS virtual key.
+      In AgnosticD, source this from agnosticd_user_info.litemaas_api_key
+      after running rhpds.litellm_virtual_keys with package=lab-prod.
+
+# ── Step 1: Install the Lightspeed Operator via OLM ──────────────────────────
+
+- name: Create OperatorGroup for Lightspeed (cluster-wide)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: openshift-lightspeed
+        namespace: "{{ lightspeed_namespace }}"
+      spec: {}
+
+- name: Create Subscription for OpenShift Lightspeed Operator
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: openshift-lightspeed
+        namespace: "{{ lightspeed_namespace }}"
+      spec:
+        channel: "{{ lightspeed_channel }}"
+        installPlanApproval: Automatic
+        name: openshift-lightspeed
+        source: redhat-operators
+        sourceNamespace: openshift-marketplace
+
+- name: Wait for Lightspeed Operator pod to be Running
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ lightspeed_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/name=lightspeed-operator"
+  register: ols_operator_pods
+  until:
+    - ols_operator_pods.resources | length > 0
+    - ols_operator_pods.resources[0].status.phase == "Running"
+  retries: "{{ (lightspeed_operator_wait_seconds / 10) | int }}"
+  delay: 10
+
+- name: Wait for OLSConfig CRD to be established
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: olsconfigs.ols.openshift.io
+  register: ols_crd
+  until:
+    - ols_crd.resources | length > 0
+    - ols_crd.resources[0].status.conditions |
+      selectattr('type', 'equalto', 'Established') |
+      selectattr('status', 'equalto', 'True') | list | length > 0
+  retries: 18
+  delay: 10
+
+# ── Step 2: Store LiteMaaS credentials as a Secret ───────────────────────────
+
+- name: Create LiteMaaS credentials secret in openshift-lightspeed namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: litemaas-credentials
+        namespace: "{{ lightspeed_namespace }}"
+      type: Opaque
+      stringData:
+        apitoken: "{{ litemaas_api_token }}"
+
+# ── Step 3: Build the model list dynamically ─────────────────────────────────
+
+- name: Set base model list (primary only)
+  ansible.builtin.set_fact:
+    ols_models:
+      - name: "{{ litemaas_model_primary }}"
+
+- name: Append comparison model when configured
+  ansible.builtin.set_fact:
+    ols_models: "{{ ols_models + [{'name': litemaas_model_comparison}] }}"
+  when: litemaas_model_comparison | length > 0
+
+# ── Step 4: Apply OLSConfig CR ───────────────────────────────────────────────
+
+- name: Apply OLSConfig CR pointing to LiteMaaS
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: ols.openshift.io/v1alpha1
+      kind: OLSConfig
+      metadata:
+        name: cluster
+      spec:
+        llm:
+          providers:
+            - name: litemaas
+              type: openai
+              url: "{{ litemaas_api_url }}"
+              credentialsSecretRef:
+                name: litemaas-credentials
+              models: "{{ ols_models }}"
+        ols:
+          defaultProvider: litemaas
+          defaultModel: "{{ litemaas_model_primary }}"
+          logLevel: INFO
+          introspectionEnabled: "{{ lightspeed_introspection_enabled }}"
+
+# ── Step 5: Wait for Lightspeed service pod to be Running ────────────────────
+
+- name: Wait for Lightspeed service pod to be Running
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ lightspeed_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/name=lightspeed-service"
+  register: ols_service_pods
+  until:
+    - ols_service_pods.resources | length > 0
+    - ols_service_pods.resources[0].status.phase == "Running"
+  retries: 18
+  delay: 10
+
+- name: Print Lightspeed setup summary
+  ansible.builtin.debug:
+    msg:
+      - "OpenShift Lightspeed is ready."
+      - "Default model : {{ litemaas_model_primary }}"
+      - "Comparison model: {{ litemaas_model_comparison if litemaas_model_comparison | length > 0 else 'not configured' }}"
+      - "Cluster interaction (MCP): {{ lightspeed_introspection_enabled }}"
+      - "Students access Lightspeed from the lightbulb icon in the OCP web console."

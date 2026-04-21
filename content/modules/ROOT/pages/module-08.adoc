@@ -1,0 +1,660 @@
+= Module 8: AI-Assisted Capacity Operations with OpenShift Lightspeed
+
+_Duration: 90 minutes_
+
+[#objectives]
+== Learning Objectives
+
+By the end of this module, you will be able to:
+
+* Describe what OpenShift Lightspeed is, how it is configured, and where it lives in the OCP console
+* Query Lightspeed as a *developer* to debug resource sizing, QoS, and HPA problems
+* Query Lightspeed as an *infrastructure engineer* to reason about node density, etcd limits, and fleet architecture
+* Use Lightspeed as a *forecasting co-pilot* to write PromQL queries, estimate capacity runway, and translate metrics into executive language
+* Compare how IBM Granite and Qwen3 models respond differently to the same capacity planning question
+* Recognise the boundaries of what an AI assistant can and cannot do for capacity planning
+
+[#what-is-lightspeed]
+== What is OpenShift Lightspeed?
+
+OpenShift Lightspeed is an AI chat assistant embedded directly into the OpenShift web console. It answers questions about OpenShift Container Platform — how things work, why something broke, and what commands to run — without leaving the browser.
+
+Unlike a general-purpose chatbot, Lightspeed has access to a curated Retrieval-Augmented Generation (RAG) database of OCP documentation. This means it can give answers grounded in Red Hat product behaviour rather than generic Kubernetes theory.
+
+=== What Lightspeed Can Help With
+
+[cols="1,3",options="header"]
+|===
+|Category |Examples
+
+|*Debugging*
+|"Why is my pod OOMKilled?" +
+"What does exit code 137 mean?" +
+"How do I check CPU throttling in Prometheus?"
+
+|*Configuration*
+|"How do I enable HPA on a custom metric?" +
+"What kubeletConfig field increases maxPods?" +
+"How do I write a ResourceQuota for a namespace?"
+
+|*PromQL authoring*
+|"Write a query for CPU request overcommit ratio per namespace" +
+"Show me the PromQL for Pod Velocity over 90 days" +
+"How do I calculate etcd database growth rate?"
+
+|*Forecasting assistance*
+|"I have 180 pods per node and grow at 12 pods/week. When do I hit maxPods?" +
+"What capacity buffer should I plan for Black Friday traffic spikes?" +
+"Translate this utilisation data into a quarterly budget recommendation"
+
+|*Architecture decisions*
+|"When should I split one large cluster into multiple smaller ones?" +
+"What are the RHACM observability storage trade-offs?"
+|===
+
+=== What Lightspeed Cannot Do
+
+[IMPORTANT]
+====
+Lightspeed is a *conversational assistant*, not an autonomous agent. It cannot:
+
+* Run `oc` or `kubectl` commands on your behalf (unless cluster interaction is enabled — see below)
+* Access your cluster metrics directly without the optional MCP introspection feature
+* Make changes to your cluster (it only advises)
+* Guarantee 100% accurate PromQL — always test queries in Prometheus before using in dashboards
+====
+
+=== Cluster Interaction (Optional — Technology Preview)
+
+When the platform team enables *cluster interaction* (`introspectionEnabled: true` in OLSConfig), Lightspeed installs a Model Context Protocol (MCP) server that gives it read-only access to your cluster's live state. This allows Lightspeed to answer projection questions based on *your actual* metrics rather than hypothetical numbers.
+
+In this workshop, cluster interaction may be pre-enabled on your student cluster. If it is, questions like "which of my namespaces is most over-requested?" will return live data from your cluster.
+
+=== Where to Find Lightspeed in the OCP Console
+
+Lightspeed appears as a *lightbulb icon* in the top-right toolbar of the OpenShift web console, next to the question-mark help icon. Click it to open the chat panel.
+
+[NOTE]
+====
+*Before starting the labs, open your student cluster console:*
+
+`{student-cluster-console}`
+
+Log in as `kubeadmin` with password `{student-cluster-password}` and click the lightbulb icon in the top-right toolbar to open Lightspeed.
+
+If the lightbulb icon is not visible, the Lightspeed Operator may still be starting up. Wait 2–3 minutes and refresh the page.
+====
+
+=== The Model in This Workshop
+
+The Lightspeed instance on your cluster has been configured to use two models via the RHDP LiteMaaS AI service:
+
+* *Primary (default)*: `openai/granite-3-2-8b-instruct` — IBM Granite 3.2 8B, a Red Hat and IBM enterprise model trained on Red Hat documentation
+* *Comparison* (Lab 8D): `openai/qwen3-14b` — Qwen 3 14B, a general-purpose model from Alibaba with strong reasoning
+
+Both models are available without any local GPU. They are served by the RHDP Model-as-a-Service (LiteMaaS) platform over an OpenAI-compatible API.
+
+'''
+
+[#lab8a]
+== Lab 8A: Developer Queries — The "Smart Debugger"
+
+_20 minutes — Revisits Module 3 topics_
+
+In Module 3 you experienced OOMKilled pods, CPU throttling, QoS classes, and HPA configuration hands-on. In this lab you will ask Lightspeed the same questions a developer would ask in production — and compare the AI's answer against what you learned in the lab.
+
+[NOTE]
+====
+All interactions in Labs 8A, 8B, and 8C happen inside the *Lightspeed chat panel* in the OCP web console. There are no terminal commands to run. Open the chat panel now at:
+
+`{student-cluster-console}`
+
+The lightbulb icon is in the top-right toolbar.
+====
+
+=== Query 1: OOMKilled diagnosis
+
+Type the following prompt into the Lightspeed chat exactly as shown:
+
+[source,text]
+----
+My pod keeps restarting with exit code 137. How do I diagnose an OOMKilled event
+and use historical Prometheus data to set an accurate memory request?
+----
+
+.What to look for in the response
+[TIP]
+====
+A good answer will mention:
+
+* Exit code 137 = 128 + SIGKILL (OOM kill)
+* `oc describe pod` and checking `lastState.terminated.reason`
+* The Prometheus metric `container_memory_working_set_bytes` for historical sizing
+* Setting memory limit slightly above the 95th-percentile observed usage
+* The difference between requests (scheduling baseline) and limits (hard ceiling)
+
+Does Lightspeed's answer match what you observed in Lab 3, Part 6?
+====
+
+=== Query 2: QoS classes in plain language
+
+[source,text]
+----
+Explain Kubernetes QoS classes — Guaranteed, Burstable, and BestEffort — in
+plain language for a developer who has never read the Kubernetes docs.
+Include which class gets evicted first when a node runs out of memory.
+----
+
+.Reflection
+[NOTE]
+====
+Compare the length and tone of this response to the Module 3 explanation. Notice how Lightspeed frames the developer social contract: requests are not restrictions, they are a promise to the scheduler.
+====
+
+=== Query 3: HPA with a custom Prometheus metric
+
+[source,text]
+----
+How do I configure a HorizontalPodAutoscaler on OpenShift to scale based on
+a custom Prometheus metric from my application? Show me the YAML.
+----
+
+.What to look for
+[TIP]
+====
+The answer should reference:
+
+* `custom.metrics.k8s.io` API or `external.metrics.k8s.io`
+* The Prometheus Adapter (`prometheus-adapter`) that bridges Prometheus metrics to the Kubernetes metrics API
+* An HPA manifest using `spec.metrics[].type: Pods` or `type: External`
+* The relationship between the metric value and the target threshold
+
+This is a harder question than "create a basic CPU HPA." If the model gives a generic answer about CPU HPA instead, try rephrasing with: "I want to scale based on a metric called `http_requests_per_second` from Prometheus."
+====
+
+=== Query 4: CPU throttling PromQL
+
+[source,text]
+----
+Write a PromQL query that shows the CPU throttling rate for all pods in a
+specific namespace. I want to see it as a percentage of throttled CPU time.
+----
+
+.Sample expected output
+[source,promql]
+----
+100 * sum by (pod, namespace) (
+  rate(container_cpu_cfs_throttled_seconds_total{namespace="capacity-workshop"}[5m])
+) /
+sum by (pod, namespace) (
+  rate(container_cpu_cfs_periods_total{namespace="capacity-workshop"}[5m])
+)
+----
+
+[IMPORTANT]
+====
+*Test every PromQL query* Lightspeed writes before using it in a dashboard. Run it in the OCP console Observe → Metrics (or Thanos UI if using RHACM). Lightspeed can produce syntactically correct queries that don't match your actual metric label names — verify that `container_cpu_cfs_throttled_seconds_total` exists in your cluster before building a dashboard panel around it.
+====
+
+'''
+
+[#lab8b]
+== Lab 8B: Infrastructure Engineer Queries — The "Fleet Advisor"
+
+_20 minutes — Revisits Modules 4 & 5_
+
+In Modules 4 and 5 you worked through node density mathematics, etcd constraints, and RHACM observability. Now you will ask Lightspeed the operational questions an infrastructure engineer faces when managing a fleet of OpenShift clusters.
+
+=== Query 1: Increasing maxPods safely
+
+[source,text]
+----
+How do I safely increase the maximum number of pods per worker node beyond
+the default 250 on OpenShift 4.17? What are the risks and what should I
+monitor after making the change?
+----
+
+.What to look for
+[TIP]
+====
+A complete answer will cover:
+
+* Editing a `KubeletConfig` CR (`spec.kubeletConfig.maxPods`) — not editing `kubelet.conf` directly
+* The `MachineConfigPool` selector to target specific node types
+* Memory overhead increase per pod (DaemonSets consume slots too)
+* etcd pressure from increased object count at high density
+* Monitoring: `kubelet_running_pods` metric and etcd `etcd_db_total_size_in_bytes`
+* The 500-pod-per-node soft limit and why Red Hat recommends testing before fleet-wide rollout
+
+Does Lightspeed mention that this triggers a node drain/reboot via MachineConfig? That is critical operational information a Module 4 engineer must know.
+====
+
+=== Query 2: etcd sizing and monitoring
+
+[source,text]
+----
+What are the etcd database size limits on OpenShift, and how do I write a
+PromQL query to track etcd database growth over time so I can forecast
+when I need to defrag or add control plane capacity?
+----
+
+.Sample PromQL output to expect
+[source,promql]
+----
+# Current etcd DB size in bytes
+etcd_mvcc_db_total_size_in_bytes
+
+# Growth rate over 7 days (bytes per day)
+deriv(etcd_mvcc_db_total_size_in_bytes[7d]) * 86400
+----
+
+=== Query 3: Cluster architecture trade-offs
+
+[source,text]
+----
+We run a single 500-node OpenShift cluster for all teams. At what point
+should we consider splitting it into multiple smaller clusters, and what
+are the operational trade-offs of federation versus consolidation?
+----
+
+.Reflection
+[NOTE]
+====
+This question has no single right answer. Notice whether Lightspeed frames the decision around:
+
+* etcd object count limits (~8 GB database size as a hard threshold)
+* Network blast radius (one control plane failure vs. isolated failures)
+* Tenant isolation requirements
+* RHACM management overhead per cluster
+* Multi-tenancy via namespaces vs. dedicated cluster per team
+
+Compare this to the Module 4 discussion of when fleet federation makes sense.
+====
+
+=== Query 4: RHACM capacity dashboard PromQL
+
+[source,text]
+----
+I'm building an RHACM Grafana capacity dashboard for a fleet of OpenShift
+clusters. Write three PromQL queries I should include:
+1. CPU request overcommit ratio per namespace across all clusters
+2. Memory utilisation versus allocated capacity per cluster
+3. The number of pods per node to identify density hotspots
+----
+
+[TIP]
+====
+When Lightspeed writes multi-cluster queries for RHACM, it should reference the `cluster` label that Thanos Federation adds to every metric scraped from managed clusters:
+
+[source,promql]
+----
+# CPU overcommit ratio per namespace
+sum by (namespace, cluster) (kube_pod_container_resource_requests{resource="cpu"})
+/
+sum by (namespace, cluster) (kube_node_status_allocatable{resource="cpu"})
+----
+
+If Lightspeed omits the `cluster` label, follow up with: "These queries will run against RHACM Thanos. Add the `cluster` label to the `by()` clause so each cluster appears separately in Grafana."
+====
+
+'''
+
+[#lab8c]
+== Lab 8C: Forecasting Assistant — The "Planning Copilot"
+
+_30 minutes — Revisits Modules 1, 2, & 7_
+
+This lab is the capstone of the workshop. You will use Lightspeed to operationalise the forecasting models from Modules 1 and 2, stress-test them against the Black Friday scenario from Module 6, and produce the executive language from Module 7 — all with AI assistance.
+
+[NOTE]
+====
+*How this lab works*
+
+Most prompts below include placeholder data (italicised in brackets). For the best results, substitute real numbers from your student cluster:
+
+* Replace `_[your namespace]_` with `capacity-workshop`
+* For queries 2 and 4, use numbers from your Module 2 and Module 3 lab results if you have them, or use the placeholder values provided
+
+The more specific your input, the more actionable Lightspeed's output will be.
+====
+
+=== Query 1: Pod Velocity PromQL (Module 2 revisited)
+
+[source,text]
+----
+Write the PromQL query that calculates Pod Velocity — the number of new
+pod deployments per week — across all namespaces for the past 90 days.
+This is the foundation of our capacity forecasting model from Module 2.
+----
+
+.Expected output
+[TIP]
+====
+Lightspeed should produce something close to:
+
+[source,promql]
+----
+# New pod creations per week (7-day rolling sum)
+increase(kube_pod_created[7d])
+
+# Pod Velocity trend over 90 days (weekly averages)
+sum by (namespace) (
+  increase(kube_pod_created{namespace!=""}[7d])
+)
+----
+
+The key concept from Module 2 is that Pod Velocity (new pods/time) is a better predictor of node demand than raw CPU trending for microservices architectures. Ask Lightspeed to explain *why* this metric matters for capacity forecasting to validate it understands the concept.
+====
+
+=== Query 2: Runway calculation with the math shown
+
+[source,text]
+----
+I have 4 worker nodes, each currently running 195 pods. Our Pod Velocity
+(from Prometheus) is 14 new pods per week. Our maxPods per node is 250.
+
+How many weeks until I hit maxPods and need to add a worker node?
+Show your calculation step by step, then write a PromQL expression that
+computes this runway automatically from live cluster data.
+----
+
+.What a complete answer looks like
+[source,text]
+----
+Current available capacity:
+  4 nodes × 250 maxPods = 1,000 total pod slots
+  Currently used: 4 × 195 = 780 pods
+  Available: 1,000 - 780 = 220 pod slots
+
+At 14 new pods/week:
+  Weeks until full: 220 ÷ 14 = 15.7 weeks (~16 weeks)
+
+PromQL for live runway (in weeks):
+  (
+    sum(kube_node_status_allocatable{resource="pods"})
+    - sum(kube_pod_info{node!=""})
+  ) / <pod_velocity_per_week>
+----
+
+[IMPORTANT]
+====
+*Capacity buffer rule of thumb*
+
+Never plan to scale at 100% capacity. Ask Lightspeed: "What safety buffer should I apply to this runway estimate for a production platform?" A well-calibrated answer will recommend 20–30% buffer (scale at 70–80% capacity), accounting for burst traffic, deployment surges, and the time required to provision new nodes (especially in cloud environments where new node provisioning takes 5–15 minutes).
+====
+
+=== Query 3: Grafana panel JSON for capacity countdown
+
+[source,text]
+----
+Generate a Grafana panel JSON snippet that shows "days until maxPods is
+reached" as a single-stat panel per node. This should read from Prometheus
+and update automatically. Use a green/yellow/red threshold:
+- green: > 60 days
+- yellow: 30-60 days
+- red: < 30 days
+
+Assume Pod Velocity of 14 pods/week and maxPods of 250.
+----
+
+[NOTE]
+====
+Lightspeed will produce a JSON panel definition. Before pasting it into your RHACM Grafana dashboard, check:
+
+* The `datasource` field matches your Prometheus data source name (usually `default` or `Thanos`)
+* The PromQL uses label names that exist in your cluster
+* The thresholds are in the correct unit (days, not seconds)
+
+Lightspeed often produces valid JSON with correct structure but wrong data source names — a quick edit is usually all that's needed.
+====
+
+=== Query 4: Black Friday buffer planning (Module 6 revisited)
+
+[source,text]
+----
+My production cluster has a CPU request overcommit ratio of 2.3× (meaning
+applications have requested 2.3× the actual allocatable CPU). During Black
+Friday, we expect a 10× traffic spike over baseline.
+
+What are the risks of running at 2.3× overcommit during a 10× traffic event,
+and how much additional node capacity should I plan to provision before the
+event? Use the capacity planning framework from the answer.
+----
+
+.Reflection
+[TIP]
+====
+This is the Module 6 Black Friday Chaos Game scenario expressed as an advisory question rather than a live simulation. Lightspeed should discuss:
+
+* CPU overcommit ratio interacts with HPA — at 2.3× overcommit, HPA TARGETS percentages are inflated, meaning autoscaling fires later than expected
+* At 10× traffic, the request total could briefly exceed 23× actual CPU allocatable — a scenario where Guaranteed pods hold their CPU but Burstable pods get throttled to their limit
+* Pre-event node provisioning: add enough nodes to bring overcommit below 1.5× *before* the event window, not during it
+* Cloud commitment strategy: on-demand vs. reserved for burst capacity
+====
+
+=== Query 5: Executive summary (Module 7 revisited)
+
+[source,text]
+----
+Based on the following capacity data from our OpenShift cluster, write a
+one-paragraph executive summary suitable for a quarterly budget request:
+
+- Current cluster: 4 worker nodes, 780 pods running
+- Pod Velocity: 14 new pods/week (growing 8% month-over-month)
+- Capacity runway: 16 weeks at current growth before hitting maxPods
+- Action required: provision 2 new worker nodes before week 12 (safety buffer)
+- Estimated cost: $3,200/month per additional m5.4xlarge node on AWS
+
+Write this for an audience of finance and business leadership, not engineers.
+Avoid technical jargon. Focus on cost, risk, and timeline.
+----
+
+.Compare to your Module 7 pitch
+[NOTE]
+====
+In Module 7 you wrote a capacity pitch manually. Notice how Lightspeed's version differs:
+
+* Does it use the right tone (business language, not technical)?
+* Does it communicate the *consequence* of not acting (the risk) rather than just the technical facts?
+* Does it frame infrastructure spend as a business enabler ("supports 10× traffic growth") rather than a cost centre?
+
+If you are not satisfied with the first output, try this follow-up: "Rewrite the summary to emphasise the risk of *not* provisioning the nodes. What business impact occurs at week 16 if we do nothing?"
+====
+
+=== Optional: Live cluster queries (cluster interaction required)
+
+If your instructor has enabled *cluster interaction* on your Lightspeed instance, the following prompts will return answers based on your actual cluster state rather than hypothetical numbers.
+
+[source,text]
+----
+Look at my current cluster state. Which three namespaces have the highest
+ratio of CPU requests versus actual CPU usage over the past 24 hours?
+----
+
+[source,text]
+----
+Based on current pod counts across all nodes and the deployment velocity
+you can observe in cluster events, estimate how many weeks of node capacity
+remain before I need to add a worker node.
+----
+
+[NOTE]
+====
+Cluster interaction is a *Technology Preview* feature as of OpenShift Lightspeed 1.0. Answers from live cluster queries are more specific but also more dependent on model quality. The Qwen3-14B model (Lab 8D) typically performs better at multi-step tool-use tasks like these, because larger parameter counts improve tool selection accuracy.
+====
+
+'''
+
+[#lab8d]
+== Lab 8D: Model Comparison — Granite vs. Qwen3
+
+_20 minutes_
+
+[NOTE]
+====
+This lab requires the `openai/qwen3-14b` model to be configured in your Lightspeed instance. If the model selector in the Lightspeed chat panel shows only one model, your environment is running granite only. Ask your instructor whether qwen3-14b was provisioned for your cluster.
+
+To switch models: click the model name (shown just above the chat input field) and select from the dropdown.
+====
+
+=== The comparison exercise
+
+Pick *one* of the following prompts — ideally one that gave you a long or complex answer in Lab 8C. Run it against both models and compare side by side.
+
+Suggested prompts for comparison:
+
+. The runway calculation from Lab 8C Query 2 (maths + PromQL)
+. The Black Friday buffer planning from Lab 8C Query 4
+. The executive summary from Lab 8C Query 5
+
+For each response, evaluate against this rubric:
+
+[cols="3,1,1",options="header"]
+|===
+|Criterion |Granite 3.2 8B |Qwen3 14B
+
+|Answers the question directly without unnecessary preamble
+|{openshift-tooltip-icon}
+|{openshift-tooltip-icon}
+
+|Shows calculation steps (for maths questions)
+|
+|
+
+|Uses Red Hat / OCP-specific terminology correctly
+|
+|
+
+|Provides working PromQL (for metric queries)
+|
+|
+
+|Explains reasoning, not just the answer
+|
+|
+
+|Response length is appropriate (not too short, not padded)
+|
+|
+
+|Executive language tone (for Query 5)
+|
+|
+|===
+
+Fill in a checkmark ({openshift-tooltip-icon}) or leave blank for each cell based on what you observe.
+
+=== Discussion: Why does model choice matter?
+
+[IMPORTANT]
+====
+*Model selection is a capacity planning decision.*
+
+Consider the trade-offs:
+
+*Granite 3.2 8B*::
+Smaller model (8B parameters), faster response time, lower token cost per query, trained on Red Hat documentation. Best for day-to-day operational questions about OCP products.
+
+*Qwen3 14B*::
+Larger model (14B parameters), stronger general reasoning, better at multi-step tool-calling (cluster interaction feature). Better for complex forecasting maths, multi-variable analysis, and free-form writing like executive summaries.
+
+*For a production Lightspeed deployment*, the right choice depends on:
+
+* The primary use case (quick debugging vs. strategic analysis)
+* Available LiteMaaS token budget (larger models cost more tokens per query)
+* Response latency requirements (14B is ~2× slower than 8B at same GPU throughput)
+* Whether cluster interaction (MCP) is needed — larger models are significantly more reliable at tool selection
+
+Red Hat recommends Granite as the default because it is optimised for OCP-specific knowledge. But as the platform engineer responsible for this tool, *you should evaluate both models against your team's actual query patterns* — exactly as you just did in this lab.
+====
+
+'''
+
+== Lab 8 Summary: AI-Assisted Capacity Operations
+
+You have now completed all four labs. Here is what you accomplished:
+
+*Lab 8A — Developer Queries*
+
+✅ Diagnosed OOMKilled events using Lightspeed as a debugging assistant +
+✅ Generated QoS explanations and HPA YAML configurations +
+✅ Authored CPU throttling PromQL with AI assistance
+
+*Lab 8B — Infrastructure Engineer Queries*
+
+✅ Got step-by-step guidance on increasing maxPods safely +
+✅ Generated etcd monitoring queries and growth forecasts +
+✅ Explored cluster architecture trade-offs through conversational AI
+
+*Lab 8C — Forecasting Assistant*
+
+✅ Rebuilt the Module 2 Pod Velocity model with AI-assisted PromQL +
+✅ Calculated capacity runway with explicit maths shown by the model +
+✅ Generated a Grafana panel specification for capacity countdown +
+✅ Applied Black Friday buffer planning via conversational analysis +
+✅ Produced an executive capacity summary from raw data
+
+*Lab 8D — Model Comparison*
+
+✅ Compared Granite 3.2 8B and Qwen3 14B on the same capacity question +
+✅ Evaluated model choice as a capacity and cost trade-off
+
+== Prompt Engineering Tips for Capacity Planning
+
+[TIP]
+====
+These patterns consistently improve Lightspeed responses on capacity topics:
+
+*Give context*:: "I am a platform engineer managing a fleet of 12 OpenShift clusters on AWS..." is more effective than starting without context.
+
+*Specify the format*:: "Show the calculation step by step" or "Write a PromQL query" focuses the model on the output you need.
+
+*Ask for Red Hat specifics*:: "On OpenShift 4.17 specifically" or "using the OpenShift web console" narrows the answer to OCP-specific paths rather than generic Kubernetes.
+
+*Iterate*:: If the first response is too generic, follow up with: "That was for a generic Kubernetes cluster. How does this differ on OpenShift where [specific feature] is available?"
+
+*Validate PromQL*:: Always paste generated PromQL into the OCP console Observe → Metrics view before embedding it in a dashboard or alert rule.
+====
+
+== Key Takeaways
+
+* *Lightspeed is a force multiplier, not a replacement* for understanding the capacity planning concepts from Modules 1–7 — the quality of your queries is directly proportional to the depth of your domain knowledge
+* *Granite 3.2 8B* is optimised for Red Hat product questions; *Qwen3 14B* is stronger for complex reasoning and tool-use
+* *PromQL assistance* is one of the highest-value Lightspeed use cases — it removes the barrier of memorising metric names and query syntax
+* *Cluster interaction (MCP introspection)* enables live capacity projection against real cluster data — a Technology Preview feature worth enabling in production
+* *Model selection is a capacity planning decision*: token cost, latency, and capability all factor in just like infrastructure sizing decisions
+
+== Workshop Complete
+
+Congratulations — you have completed all eight modules of the *Strategic Capacity Planning & Forecasting for OpenShift at Scale* workshop.
+
+You now have a complete toolkit for running data-driven capacity operations:
+
+[cols="1,3",options="header"]
+|===
+|Module |Capability Gained
+
+|1 — Planning Horizon
+|Established baselines using the three-horizon planning framework
+
+|2 — Mathematics of Forecasting
+|Pod Velocity model and predictive dashboard construction
+
+|3 — Developer Track
+|QoS classes, right-sizing with Prometheus P95, HPA configuration
+
+|4 — Infrastructure Track
+|Node density mathematics, etcd limits, kubeletConfig tuning
+
+|5 — Fleet Observability
+|RHACM multi-cluster Thanos dashboards and metric allowlists
+
+|6 — Integration Challenge
+|Real-time incident decision-making under Black Friday pressure
+
+|7 — Strategic Roadmapping
+|12-month capacity roadmap and executive communication
+
+|8 — AI-Assisted Operations
+|Lightspeed as a debugging co-pilot, PromQL assistant, and forecasting advisor
+|===

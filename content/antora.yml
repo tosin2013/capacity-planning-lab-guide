@@ -56,6 +56,13 @@ asciidoc:
     # {{cluster}} in AsciiDoc double-substitutes to {cluster} (Grafana legend variable) in HTML.
     cluster: ""
 
+    # Module 8: OpenShift Lightspeed / LiteMaaS attributes
+    # litemaas_api_token is NOT listed here — it is secret and injected at runtime
+    # by Showroom from agnosticd_user_info (rhpds.litellm_virtual_keys output).
+    # The values below are injected per-student by Showroom post-provision wiring.
+    litemaas_model_primary: "openai/granite-3-2-8b-instruct"
+    litemaas_model_comparison: "openai/qwen3-14b"
+
     page-links:
     - url: https://redhat.com
       text: Red Hat

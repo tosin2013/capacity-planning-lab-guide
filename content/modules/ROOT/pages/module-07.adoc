@@ -848,19 +848,18 @@ This workshop moved you to Level 3 in one day. Getting to Level 4 takes 6-12 mon
 * *Risk analysis should quantify impact in dollars and propose mitigations*
 * *Capacity planning is a collaboration between platform, app teams, finance, and leadership*
 
-== Congratulations!
+== Next Module
 
-You've completed the **Strategic Capacity Planning & Forecasting for OpenShift at Scale** workshop.
+In xref:module-08.adoc[Module 8: AI-Assisted Capacity Operations], you will use OpenShift Lightspeed — an AI assistant embedded in the OCP web console — to operationalise everything you built in Modules 1–7. Lightspeed will help you write the PromQL queries from Module 2, debug the QoS issues from Module 3, reason about node density from Module 4, and translate your metrics into the executive language you practised in this module.
 
-You now have:
+== Key Takeaways
 
-✅ A baseline audit methodology (Module 1)
-✅ A Pod Velocity forecasting model (Module 2)
-✅ Right-sizing best practices (Module 3)
-✅ Infrastructure sizing formulas (Module 4)
-✅ Multi-cluster observability dashboards (Module 5)
-✅ Incident response experience (Module 6)
-✅ A 12-month strategic roadmap template (Module 7)
+* *Executives care about cost, risk, and growth—not technical metrics like etcd size*
+* *Lead with the recommendation, then justify with data*
+* *A 12-month roadmap should have quarterly milestones and a contingency budget*
+* *Under-commit on Reserved Instances (60-80% of baseline) to avoid waste*
+* *Risk analysis should quantify impact in dollars and propose mitigations*
+* *Capacity planning is a collaboration between platform, app teams, finance, and leadership*
 
 === Next Steps
 

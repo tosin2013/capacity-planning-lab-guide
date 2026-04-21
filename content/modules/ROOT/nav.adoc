@@ -32,3 +32,11 @@
 * xref:module-07.adoc[Module 7: Strategic Roadmapping]
 ** xref:module-07.adoc#objectives[Learning Objectives]
 ** xref:module-07.adoc#lab7[Lab 7: The Executive Pitch]
+
+* xref:module-08.adoc[Module 8: AI-Assisted Capacity Operations]
+** xref:module-08.adoc#objectives[Learning Objectives]
+** xref:module-08.adoc#what-is-lightspeed[What is OpenShift Lightspeed?]
+** xref:module-08.adoc#lab8a[Lab 8A: Developer Queries]
+** xref:module-08.adoc#lab8b[Lab 8B: Infrastructure Engineer Queries]
+** xref:module-08.adoc#lab8c[Lab 8C: Forecasting Assistant]
+** xref:module-08.adoc#lab8d[Lab 8D: Model Comparison]

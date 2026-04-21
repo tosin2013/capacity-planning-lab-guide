@@ -1,0 +1,38 @@
+---
+# LiteMaaS endpoint — the shared RHDP Model-as-a-Service LiteLLM proxy
+litemaas_api_url: "https://litellm-prod-frontend.apps.maas.redhatworkshops.io/v1"
+
+# API token for the LiteMaaS proxy.
+# In AgnosticD this is set from the agnosticd_user_info output of rhpds.litellm_virtual_keys:
+#   litemaas_api_token: "{{ agnosticd_user_info.litemaas_api_key }}"
+# The virtual key is created by rhpds.litellm_virtual_keys during provisioning
+# with package: lab-prod (Granite + Mistral, 90 days).
+# Override this variable with the actual token before running the playbook.
+litemaas_api_token: ""
+
+# Primary model shown by default in the Lightspeed chat UI.
+# Model ID format on RHDP LiteMaaS is "openai/<model-slug>".
+# NOTE: Verify the exact slug by calling GET /v1/models with a valid token.
+litemaas_model_primary: "openai/granite-3-2-8b-instruct"
+
+# Second model exposed in the UI for Lab 8D model comparison.
+# qwen3-14b is not in the standard RHDP subscription packages.
+# It requires either a custom LiteMaaS model package or admin-level configuration.
+# Leave empty ("") to skip registering the comparison model in OLSConfig.
+# When non-empty the model name must also appear in the virtual key's allowed_models list.
+litemaas_model_comparison: "openai/qwen3-14b"
+
+# OLSConfig: whether to enable cluster interaction (MCP introspection).
+# This is a Technology Preview feature as of OCP 4.17.
+# When true, Lightspeed reads live cluster state via an MCP server and can
+# answer projection questions against real metrics.
+lightspeed_introspection_enabled: false
+
+# Namespace created by the Lightspeed Operator. Do not change.
+lightspeed_namespace: "openshift-lightspeed"
+
+# OLM Subscription channel for the Lightspeed Operator.
+lightspeed_channel: "stable"
+
+# Time in seconds to wait for the Operator to become ready after subscription.
+lightspeed_operator_wait_seconds: 120

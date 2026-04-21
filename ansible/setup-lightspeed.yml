@@ -1,0 +1,54 @@
+---
+# Playbook: setup-lightspeed.yml
+#
+# Installs and configures OpenShift Lightspeed on the student cluster to use
+# the RHDP LiteMaaS LiteLLM proxy for Module 8 of the capacity-planning workshop.
+#
+# Usage (standalone):
+#   ansible-playbook setup-lightspeed.yml \
+#     -e litemaas_api_token=sk-your-virtual-key \
+#     -e litemaas_model_comparison=openai/qwen3-14b
+#
+# Usage (from AgnosticD workload after rhpds.litellm_virtual_keys creates the key):
+#   ansible-playbook setup-lightspeed.yml \
+#     -e litemaas_api_token="{{ agnosticd_user_info.litemaas_api_key }}" \
+#     -e litemaas_model_primary=openai/granite-3-2-8b-instruct \
+#     -e litemaas_model_comparison=openai/qwen3-14b \
+#     -e lightspeed_introspection_enabled=true
+#
+# To enable the Module 8D model comparison, confirm qwen3-14b is in the
+# allowed_models list of the virtual key, or request a custom LiteMaaS package.
+#
+# Model ID verification:
+#   curl -s -H "Authorization: Bearer $TOKEN" \
+#     https://litellm-prod-frontend.apps.maas.redhatworkshops.io/v1/models \
+#     | jq '.data[].id'
+#
+# Prerequisites:
+#   - OCP 4.17+ with cluster-admin access
+#   - KUBECONFIG pointing at the student cluster
+#   - ansible-galaxy collection install kubernetes.core
+
+- name: Configure OpenShift Lightspeed for Module 8
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # Override on the command line with -e litemaas_api_token=sk-...
+    litemaas_api_token: ""
+
+  pre_tasks:
+    - name: Ensure the openshift-lightspeed namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: openshift-lightspeed
+            labels:
+              openshift.io/cluster-monitoring: "true"
+
+  roles:
+    - role: lightspeed_setup
