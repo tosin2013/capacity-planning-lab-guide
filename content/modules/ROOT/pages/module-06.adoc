@@ -669,12 +669,25 @@ INFO[...] Job etcd-pressure-wave3 took 0s
 INFO[...] 👋 Exiting kube-burner ...
 ----
 
+After kube-burner completes, open your RHACM Grafana dashboard and check the *etcd Database Size (MB)* panel in the bottom-right.
+The increase is subtle — typically 1–3 MiB — because etcd partially compacts old entries.
+Wait up to 5 minutes for the RHACM Observability metrics collector to push the updated value to the hub.
+
+image::module-06-grafana-wave3-etcd.png[RHACM Grafana dashboard after Wave 3 — the etcd Database Size panel (bottom-right) shows the current etcd size in MiB; watch for a small upward tick compared to your baseline,align="center"]
+
+[TIP]
+====
+The *etcd Database Size* panel uses binary MiB but the label reads "MB" — your Prometheus query result and the panel value will match when you use `/ 1024 / 1024`.
+The key insight: *CPU and memory panels stay flat during etcd pressure* — only the etcd gauge reveals the problem. This is why dedicated etcd monitoring (Module 5) is essential.
+====
+
 [NOTE]
 ====
 *Expected Effect*:
-* etcd database size increases due to event churn from 20 Deployment + ReplicaSet object creates
-* API response times degrade (500ms → 2000ms)
-* `oc` commands feel sluggish
+* etcd database size increases slightly due to 20 Deployment + ReplicaSet object writes
+* The increase is intentionally subtle (~1–3 MiB) — this is the point of the exercise
+* In a production cluster with thousands of events per minute, the same pattern causes rapid etcd growth toward the 8 GB quota limit
+* API response time degradation is not noticeable at workshop scale; at production scale this manifests as sluggish `oc` commands and API timeouts
 
 ==== Your Actions: Diagnose etcd Issues
 
@@ -696,10 +709,14 @@ etcd_mvcc_db_total_size_in_bytes / 1024 / 1024
 .Sample Output
 [source,textinfo]
 ----
-Value: 3842  (3.8GB - approaching the 4GB warning threshold from Module 4)
+{10.0.28.47:9979}   66.9
+{10.0.58.247:9979}  67.5
+{10.0.95.86:9979}   66.9
 ----
 
-Check API response times:
+The value is in MiB. Your numbers will vary slightly from this example — what matters is watching for the value to tick upward compared to your baseline.
+
+Check API response time as a rough proxy for etcd health:
 
 [source,bash,role=execute]
 ----
@@ -709,9 +726,9 @@ time oc get pods -A --no-headers | wc -l
 .Sample Output
 [source,textinfo]
 ----
-347
+296
 
-real	0m2.145s   ← Degraded: 2145ms (baseline was 342ms in Module 4)
+real	0m0.342s
 ----
 
 [WARNING]
