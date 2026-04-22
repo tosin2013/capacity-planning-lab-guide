@@ -819,7 +819,7 @@ real	0m0.612s   ← Improved: 612ms (still slower than baseline, but much better
 etcd_mvcc_db_total_size_in_bytes / 1024 / 1024
 ```
 
-Should drop from 3.8GB → ~2.5GB over the next 5 minutes as compaction completes.
+Should drop slightly over the next 5 minutes as etcd compaction removes the deleted Deployment and ReplicaSet objects.
 ====
 
 === Wave 4: The Recovery (T+45 to T+60 minutes)
@@ -860,11 +860,9 @@ oc get nodes -l node-role.kubernetes.io/worker
 [source,textinfo]
 ----
 NAME                                         STATUS   ROLES    AGE   VERSION
-ip-10-0-145-209.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
-ip-10-0-155-132.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
-ip-10-0-174-87.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
-ip-10-0-180-92.us-east-2.compute.internal   Ready    worker   45m   v1.28.5+4bc5c35
-ip-10-0-191-45.us-east-2.compute.internal   Ready    worker   45m   v1.28.5+4bc5c35
+ip-10-0-28-47.us-east-2.compute.internal    Ready    worker   3d    v1.29.8+f10c92d
+ip-10-0-58-247.us-east-2.compute.internal   Ready    worker   3d    v1.29.8+f10c92d
+ip-10-0-95-86.us-east-2.compute.internal    Ready    worker   3d    v1.29.8+f10c92d
 ----
 
 Reduce traffic load (simulate traffic subsiding) by removing the Wave 1 kube-burner load pods:
@@ -976,6 +974,16 @@ oc get hpa -A
 # API response time
 time oc get pods -A --no-headers | wc -l
 ```
+====
+
+Once all checks pass, your RHACM Grafana dashboard should look like this — all panels green, CPU settling back to baseline, pod count returned to ~296, and etcd stable:
+
+image::module-06-grafana-wave4-recovered.png[RHACM Grafana dashboard after Wave 4 recovery — Total Pods back to 296, CPU time series shows a brief cleanup spike then settles flat, etcd Database Size stable at 67.5 MB, all panels green,align="center"]
+
+[NOTE]
+====
+The CPU chart shows a brief mountain-shaped spike during cleanup — this is the API server processing the deletion of 20 etcd-pressure Deployments and their ReplicaSets.
+This is expected and healthy: the spike is short-lived and the cluster self-stabilizes within minutes.
 ====
 
 === Simulation Debrief
