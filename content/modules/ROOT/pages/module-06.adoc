@@ -196,15 +196,25 @@ oc describe node -l node-role.kubernetes.io/worker | grep -A 5 "Allocated resour
 [source,textinfo]
 ----
 Allocated resources:
-  Resource           Requests      Limits
-  cpu                3420m (42%)   0 (0%)
-  memory             8192Mi (26%)  0 (0%)
+  Resource           Requests       Limits
+  cpu                4388m (58%)    4710m (62%)
+  memory             12038Mi (39%)  6400Mi (21%)
+--
+Allocated resources:
+  Resource           Requests       Limits
+  cpu                3438m (45%)    2040m (27%)
+  memory             11127Mi (36%)  2072Mi (6%)
+--
+Allocated resources:
+  Resource           Requests       Limits
+  cpu                5363m (71%)    6010m (80%)
+  memory             12602Mi (41%)  4224Mi (13%)
 ----
 
-Baseline:
-* CPU allocated: 42%
-* Memory allocated: 26%
-* Available capacity: 58% CPU, 74% memory
+Baseline (values vary by node — these are representative):
+* CPU requested: 45–71% per node
+* Memory requested: 36–41% per node
+* The cluster has headroom to absorb the upcoming traffic waves
 
 ==== Step 5: Open the RHACM Observability Dashboard
 
@@ -229,6 +239,16 @@ echo "RHACM Grafana: {hub_grafana_url}"
 . In the left sidebar navigate to: *Dashboards* → *Multi-Cluster Capacity Planning*
 
 Keep this open in a separate browser window - you'll need it during the simulation.
+
+This is your *baseline state* — all panels green, etcd at ~64 MB, pod density ~99 pods/node, and Capacity Runway at `-∞` (no measurable CPU growth trend):
+
+image::module-06-grafana-baseline.png[Baseline Grafana dashboard before simulation — Total Pods ~296 across all namespaces, CPU flat, etcd ~64 MB, pod density ~99 pods/node,align="center"]
+
+[NOTE]
+====
+The *Total Pods by Cluster* panel counts pods across *all* namespaces (system, monitoring, gitops, workshop, etc.) — not just `capacity-workshop`.
+Your baseline pod count depends on which operators and workloads are running; numbers in this module are *examples only*. What matters is observing the *relative change* — pods rising, CPU spiking, etcd growing — not hitting a specific number.
+====
 
 === Wave 1: The Traffic Spike (T+0 to T+15 minutes)
 
@@ -434,12 +454,18 @@ critical-app-6c4456cfc5-p9k3l   1/1     Running   0          1m  ← New replica
 
 In your RHACM Grafana dashboard, you should see:
 
-* Panel "Total Pods by Cluster" → increased from ~50 to ~80
-* Panel "CPU: Requested vs Used" → spike in requests, usage following
-* Panel "Capacity Runway" → dropped from 120 days to 45 days (temporary)
+* Panel "Total Pods by Cluster" → rises by ~5–10 pods above your baseline (5 load pods + HPA may scale `critical-app` from 2 to 3+ replicas)
+* Panel "CPU: Requested vs Used" → clear spike visible on the right edge of the time series as `wrk` saturates `critical-app`
+* Panel "Capacity Runway" → may show a brief finite value as CPU usage surges; returns to `-∞` once load subsides
+
+Exact pod counts vary by cluster. Focus on the *direction of change*, not a specific number.
 
 *This is the value of Module 5's observability!* Without it, you'd be flying blind.
 ====
+
+Here is an example of what the dashboard looks like during the Wave 1 traffic spike — notice the twin CPU spikes on the right of the time series and the pod count ticking up above baseline:
+
+image::module-06-grafana-wave1-spike.png[Grafana dashboard during Wave 1 — Total Pods rose to 303 (from 296 baseline), CPU: Requested vs Used shows two sharp spikes as wrk load pods fired,align="center"]
 
 === Wave 2: The Node Failures (T+15 to T+30 minutes)
 
