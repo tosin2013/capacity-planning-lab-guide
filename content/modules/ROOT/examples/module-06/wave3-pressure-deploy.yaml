@@ -5,8 +5,12 @@
 # without actually scheduling any pods, keeping node load unaffected while
 # still driving up etcd database size through object/event churn.
 #
-# The explicit label app=etcd-pressure on the Deployment metadata allows
-# bulk cleanup with a single label-selector delete:
+# Selector uses kube-burner.io/job which kube-burner auto-injects into the
+# pod template on every object — this avoids the matchLabels/template mismatch
+# that occurs when using {{.Iteration}} inside spec.template.metadata.labels.
+# With replicas=0, overlapping selectors across the 20 deployments are harmless.
+#
+# Bulk cleanup via label on Deployment metadata:
 #   oc delete deployment -n capacity-workshop -l app=etcd-pressure
 apiVersion: apps/v1
 kind: Deployment
@@ -21,11 +25,13 @@ spec:
   replicas: 0
   selector:
     matchLabels:
-      app: etcd-pressure-{{.Iteration}}
+      kube-burner.io/job: etcd-pressure-wave3
   template:
     metadata:
       labels:
-        app: etcd-pressure-{{.Iteration}}
+        app: etcd-pressure
+        wave: "3"
+        demo.redhat.com/application: capacity-workshop
     spec:
       containers:
       - name: pressure
