@@ -420,67 +420,95 @@ In this final lab, you'll create a 12-month capacity roadmap for your organizati
 
 === Step 1: Gather Your Data
 
-Collect the metrics from previous modules:
+Run the `capacity-roadmap-generator.sh` script. It queries Prometheus directly to pull
+live values for pod count, worker nodes, CPU allocation and usage, etcd database size,
+and pod velocity — the same metrics you collected across Modules 1–5.
 
 [source,bash,role=execute]
 ----
-# Module 1 Baseline
-echo "=== Module 1: Baseline ===" > ~/capacity-roadmap-data.txt
-echo "Total Pods: $(oc get pods -A --no-headers | wc -l)" >> ~/capacity-roadmap-data.txt
-echo "Worker Nodes: $(oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l)" >> ~/capacity-roadmap-data.txt
-
-# Module 2 Pod Velocity (30-day growth)
-echo "" >> ~/capacity-roadmap-data.txt
-echo "=== Module 2: Pod Velocity ===" >> ~/capacity-roadmap-data.txt
-echo "New Pods (30-day): [Run PromQL: increase(kube_pod_created[30d])]" >> ~/capacity-roadmap-data.txt
-
-# Module 3 Right-Sizing Opportunity
-echo "" >> ~/capacity-roadmap-data.txt
-echo "=== Module 3: Right-Sizing ===" >> ~/capacity-roadmap-data.txt
-oc adm top nodes -l node-role.kubernetes.io/worker >> ~/capacity-roadmap-data.txt
-
-# Module 4 etcd Health
-echo "" >> ~/capacity-roadmap-data.txt
-echo "=== Module 4: etcd Size ===" >> ~/capacity-roadmap-data.txt
-echo "etcd DB Size: [Check Prometheus: etcd_mvcc_db_total_size_in_bytes / 1024 / 1024] MB" >> ~/capacity-roadmap-data.txt
-
-# Module 5 Multi-Cluster View (if you have RHACM)
-echo "" >> ~/capacity-roadmap-data.txt
-echo "=== Module 5: Fleet View ===" >> ~/capacity-roadmap-data.txt
-echo "Managed Clusters: [Check RHACM Console]" >> ~/capacity-roadmap-data.txt
-
-cat ~/capacity-roadmap-data.txt
+bash ~/examples/module-07/capacity-roadmap-generator.sh
 ----
+
+The script writes two files:
+
+* `~/capacity-roadmap-data.txt` — a plain-text data summary (all five module metrics)
+* `~/12-month-capacity-roadmap.md` — a filled-in roadmap template with *your actual cluster numbers*
+
+[TIP]
+====
+*Override defaults with environment variables*:
+
+[source,bash]
+----
+MONTHLY_COST_PER_NODE=300 NODE_CPU=16 bash ~/examples/module-07/capacity-roadmap-generator.sh
+----
+
+Set `MONTHLY_COST_PER_NODE` to your actual cloud bill per worker node and `NODE_CPU` to the
+allocatable core count reported by `oc describe node` for your instance type.
+====
 
 .Sample Output
-[source,textinfo]
+[source,text]
 ----
-=== Module 1: Baseline ===
-Total Pods: 142
-Worker Nodes: 5
+══════════════════════════════════════════════════
+  Module 7 — Capacity Roadmap Generator
+══════════════════════════════════════════════════
+[INFO]  Namespace  : capacity-workshop
+[INFO]  Window     : 30 days
+[INFO]  Node CPU   : 8 cores (allocatable)
+[INFO]  Node cost  : $200/month
 
-=== Module 2: Pod Velocity ===
-New Pods (30-day): [Run PromQL: increase(kube_pod_created[30d])]
+[INFO]  Step 1/7 — Locating Prometheus route …
+[OK]    Prometheus : https://prometheus-k8s-openshift-monitoring.apps...
 
-=== Module 3: Right-Sizing ===
-NAME                                         CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
-ip-10-0-155-132.us-east-2.compute.internal   512m         6%     3932Mi          13%
-...
+[INFO]  Step 3/7 — Gathering cluster baseline …
+[OK]    Total pods           : 297
+[OK]    Worker nodes         : 3
+[OK]    Allocatable CPU      : 23.5 cores
+[OK]    CPU allocated (req)  : 9.8 cores  (41.7% of allocatable)
+[OK]    CPU used (actual)    : 2.9 cores  (12.3% of allocatable)
+[OK]    Waste (alloc - used) : 6.9 cores  (29.4%)
 
-=== Module 4: etcd Size ===
-etcd DB Size: [Check Prometheus: etcd_mvcc_db_total_size_in_bytes / 1024 / 1024] MB
+[INFO]  Step 4/7 — Calculating pod velocity (30-day window) …
+[OK]    Pods started (30d)   : 142
+[OK]    Pod velocity         : 4.73 pods/day
 
-=== Module 5: Fleet View ===
-Managed Clusters: [Check RHACM Console]
+[INFO]  Step 5/7 — Checking etcd database size …
+[OK]    etcd DB size         : 0.12 GB  (1.5% of 8GB limit)
+
+[INFO]  Step 7/7 — Generating 12-month capacity roadmap …
+  Roadmap written to /home/lab-user/12-month-capacity-roadmap.md
+
+[OK]    12-month-capacity-roadmap.md → /home/lab-user/12-month-capacity-roadmap.md
 ----
 
-=== Step 2: Fill Out the Roadmap Template
+=== Step 2: Review the Generated Roadmap
 
-Create a 12-month roadmap document:
+The generator from Step 1 already wrote `~/12-month-capacity-roadmap.md` with your live
+cluster data. Open it and replace the placeholder fields (`[Your Name]`) with your details:
 
 [source,bash,role=execute]
 ----
-cat <<'EOF' > ~/12-month-capacity-roadmap.md
+cat ~/12-month-capacity-roadmap.md
+----
+
+[TIP]
+====
+*Customize the template before your pitch*:
+
+* Replace `[Your Name]` with your name
+* Adjust `MONTHLY_COST_PER_NODE` if your nodes cost more or less than $200/month
+* Add known upcoming events (product launches, migrations, Black Friday) to the Quarterly Milestones section
+* Update the Risk Analysis table with risks specific to your organization
+====
+
+[NOTE]
+====
+*For reference, the full template structure is shown below.* Your generated file will have
+the same sections but populated with live numbers from your cluster.
+
+[source,markdown,role="copypaste"]
+----
 # 12-Month Strategic Capacity Roadmap
 **Prepared by**: [Your Name]
 **Date**: April 7, 2026
@@ -653,25 +681,7 @@ cat <<'EOF' > ~/12-month-capacity-roadmap.md
 ---
 
 **Questions?**
-
-EOF
-
-cat ~/12-month-capacity-roadmap.md
 ----
-
-[TIP]
-====
-*Customize This Template*:
-
-Replace the sample numbers with your actual data:
-
-* Total pods → from `oc get pods -A --no-headers | wc -l`
-* Worker nodes → from `oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l`
-* Monthly cost → from your cloud bill or finance team
-* Pod Velocity → from Module 2 PromQL queries
-* etcd size → from Prometheus `etcd_mvcc_db_total_size_in_bytes`
-
-*Don't have all the data?* Use placeholders like `[TBD - check with finance]` and note them in the "Next Steps" section.
 ====
 
 === Step 3: Practice Your 3-Minute Pitch
@@ -758,19 +768,29 @@ Executives have limited attention spans. Your pitch must:
 
 === Step 5: Export the Roadmap
 
-Save your roadmap for use back at your organization:
+Display your roadmap and copy it to take home:
 
 [source,bash,role=execute]
 ----
-# Save as PDF (requires pandoc)
-# pandoc ~/12-month-capacity-roadmap.md -o ~/12-month-capacity-roadmap.pdf
-
-# Or save as HTML
-# pandoc ~/12-month-capacity-roadmap.md -s -o ~/12-month-capacity-roadmap.html
-
-# For now, just copy to clipboard for pasting into Google Docs / Confluence
 cat ~/12-month-capacity-roadmap.md
 ----
+
+The file is saved at `~/12-month-capacity-roadmap.md`. Copy the contents and paste into
+Google Docs, Confluence, or your organization's documentation system.
+
+[NOTE]
+====
+*Taking the roadmap further*:
+
+If you have `pandoc` available on your local machine (not the bastion), you can convert to PDF or HTML:
+
+[source,bash]
+----
+# On your local machine — copy the file from the bastion first:
+scp lab-user@{bastion_hostname}:~/12-month-capacity-roadmap.md .
+pandoc 12-month-capacity-roadmap.md -s -o 12-month-capacity-roadmap.html
+----
+====
 
 [NOTE]
 ====
@@ -779,10 +799,9 @@ cat ~/12-month-capacity-roadmap.md
 After this workshop:
 
 1. Schedule a 1-hour capacity planning session with your team
-2. Gather the baseline data (Module 1 audit commands)
-3. Run Pod Velocity calculations (Module 2 PromQL)
-4. Fill out the roadmap template with your actual numbers
-5. Present to leadership within 30 days
+2. Copy `capacity-roadmap-generator.sh` to your bastion and run it against your production clusters
+3. Replace `MONTHLY_COST_PER_NODE` with your actual cloud costs
+4. Present the generated roadmap to leadership within 30 days
 
 *Don't wait for perfection.* A rough roadmap this month is better than a perfect one in six months.
 ====
@@ -851,15 +870,6 @@ This workshop moved you to Level 3 in one day. Getting to Level 4 takes 6-12 mon
 == Next Module
 
 In xref:module-08.adoc[Module 8: AI-Assisted Capacity Operations], you will use OpenShift Lightspeed — an AI assistant embedded in the OCP web console — to operationalise everything you built in Modules 1–7. Lightspeed will help you write the PromQL queries from Module 2, debug the QoS issues from Module 3, reason about node density from Module 4, and translate your metrics into the executive language you practised in this module.
-
-== Key Takeaways
-
-* *Executives care about cost, risk, and growth—not technical metrics like etcd size*
-* *Lead with the recommendation, then justify with data*
-* *A 12-month roadmap should have quarterly milestones and a contingency budget*
-* *Under-commit on Reserved Instances (60-80% of baseline) to avoid waste*
-* *Risk analysis should quantify impact in dollars and propose mitigations*
-* *Capacity planning is a collaboration between platform, app teams, finance, and leadership*
 
 === Next Steps
 
