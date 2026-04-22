@@ -247,13 +247,20 @@ cd ~/module-06
 .Sample Output
 [source,text]
 ----
-INFO[...] 📁 Creating object bf-load-1-1 in namespace capacity-workshop
-INFO[...] 📁 Creating object bf-load-2-1 in namespace capacity-workshop
-INFO[...] 📁 Creating object bf-load-3-1 in namespace capacity-workshop
-INFO[...] 📁 Creating object bf-load-4-1 in namespace capacity-workshop
-INFO[...] 📁 Creating object bf-load-5-1 in namespace capacity-workshop
+INFO[...] 🔥 Starting kube-burner (2.6.1@...) with UUID ...
+INFO[...] Pre-load: All images pulled on 3 nodes
+INFO[...] 2/5 iterations completed
+INFO[...] 4/5 iterations completed
+INFO[...] Verifying created objects
+INFO[...] Waiting up to 2m0s for actions to be completed
+INFO[...] Actions in namespace capacity-workshop completed
 INFO[...] ✅ Job black-friday-wave1 completed
 ----
+
+[NOTE]
+====
+You may see `PodSecurity "restricted:latest"` warnings about `allowPrivilegeEscalation`, `runAsNonRoot`, and `seccompProfile`. These are *audit/warn* mode advisories only — the namespace does not enforce these constraints, so the load pods will start and run normally. The warnings are safe to ignore in this workshop context.
+====
 
 *Expected Effect*:
 * 5 load pods fire HTTP requests at `critical-app:80` simultaneously
@@ -615,11 +622,15 @@ cd ~/module-06
 .Sample Output
 [source,text]
 ----
-INFO[...] 📁 Creating object etcd-pressure-1 in namespace capacity-workshop
-INFO[...] 📁 Creating object etcd-pressure-2 in namespace capacity-workshop
+INFO[...] 🔥 Starting kube-burner (2.6.1@...) with UUID ...
+INFO[...] Pre-load: All images pulled on 3 nodes
+INFO[...] 2/20 iterations completed
+INFO[...] 4/20 iterations completed
 ...
-INFO[...] 📁 Creating object etcd-pressure-20 in namespace capacity-workshop
-INFO[...] ✅ Job etcd-pressure-wave3 completed
+INFO[...] 18/20 iterations completed
+INFO[...] Verifying created objects
+INFO[...] Job etcd-pressure-wave3 took 0s
+INFO[...] 👋 Exiting kube-burner ...
 ----
 
 [NOTE]
