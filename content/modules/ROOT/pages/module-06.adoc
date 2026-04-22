@@ -402,13 +402,14 @@ echo "Running cost for 1-hour incident: $400"
 
 You'd scale the MachineSet:
 
-```bash
+[source,bash]
+----
 # Find the MachineSet
 oc get machineset -n openshift-machine-api
 
 # Scale it
 oc scale machineset <name> -n openshift-machine-api --replicas=5
-```
+----
 
 This would:
 1. Request 2 new EC2 instances from AWS (~5 minutes)
@@ -475,7 +476,8 @@ image::module-06-grafana-wave1-spike.png[Grafana dashboard during Wave 1 — Tot
 
 Simulate the AWS availability zone failure:
 
-```bash
+[source,bash]
+----
 # Cordon 30% of worker nodes (simulate unreachable nodes)
 # Uses awk ceiling arithmetic — 'bc' truncates 0.9 to 0 on 3-node clusters
 TOTAL_NODES=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l)
@@ -486,7 +488,7 @@ oc get nodes -l node-role.kubernetes.io/worker --no-headers | awk '{print $1}' |
 # Wait 30 seconds, then drain them (simulate node shutdown)
 sleep 30
 oc get nodes -l node-role.kubernetes.io/worker --no-headers | awk '{print $1}' | head -n "$CORDON_COUNT" | xargs -I {} oc adm drain {} --ignore-daemonsets --delete-emptydir-data --force --grace-period=30
-```
+----
 
 *Expected Effect*:
 * 30% of nodes become SchedulingDisabled
@@ -688,6 +690,7 @@ The key insight: *CPU and memory panels stay flat during etcd pressure* — only
 * The increase is intentionally subtle (~1–3 MiB) — this is the point of the exercise
 * In a production cluster with thousands of events per minute, the same pattern causes rapid etcd growth toward the 8 GB quota limit
 * API response time degradation is not noticeable at workshop scale; at production scale this manifests as sluggish `oc` commands and API timeouts
+====
 
 ==== Your Actions: Diagnose etcd Issues
 
@@ -815,9 +818,10 @@ real	0m0.612s   ← Improved: 612ms (still slower than baseline, but much better
 
 *Monitor etcd size*:
 
-```promql
+[source,promql]
+----
 etcd_mvcc_db_total_size_in_bytes / 1024 / 1024
-```
+----
 
 Should drop slightly over the next 5 minutes as etcd compaction removes the deleted Deployment and ReplicaSet objects.
 ====
@@ -958,7 +962,8 @@ Before declaring "all clear":
 
 *Run these checks*:
 
-```bash
+[source,bash,role=execute]
+----
 # Node health
 oc get nodes -l node-role.kubernetes.io/worker
 
@@ -973,7 +978,7 @@ oc get hpa -A
 
 # API response time
 time oc get pods -A --no-headers | wc -l
-```
+----
 ====
 
 Once all checks pass, your RHACM Grafana dashboard should look like this — all panels green, CPU settling back to baseline, pod count returned to ~296, and etcd stable:
