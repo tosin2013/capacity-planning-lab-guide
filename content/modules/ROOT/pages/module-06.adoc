@@ -86,12 +86,15 @@ curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave1-traffic-spike.yam
 curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave1-load-pod.yaml
 curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave3-etcd-pressure.yaml
 curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave3-pressure-deploy.yaml
+curl -fsSO $BASE/content/modules/ROOT/examples/module-06/check-etcd-health.sh
+chmod +x check-etcd-health.sh
 ls -lh
 ----
 
 .Sample Output
 [source,text]
 ----
+-rwxr-xr-x. 1 lab-user lab-user 3.1K Apr 22 check-etcd-health.sh
 -rw-r--r--. 1 lab-user lab-user  892 Apr 22 wave1-load-pod.yaml
 -rw-r--r--. 1 lab-user lab-user  748 Apr 22 wave1-traffic-spike.yaml
 -rw-r--r--. 1 lab-user lab-user  820 Apr 22 wave3-etcd-pressure.yaml
@@ -694,30 +697,49 @@ The key insight: *CPU and memory panels stay flat during etcd pressure* — only
 
 ==== Your Actions: Diagnose etcd Issues
 
-Check etcd metrics in Prometheus:
+Run the etcd health check script — it auto-discovers Prometheus, mints a token, and reports the database size for all three etcd members:
 
 [source,bash,role=execute]
 ----
-# Get the Prometheus route
-oc get route -n openshift-monitoring prometheus-k8s -o jsonpath='{.spec.host}'
-----
-
-Open Prometheus and run:
-
-[source,promql]
-----
-etcd_mvcc_db_total_size_in_bytes / 1024 / 1024
+bash ~/module-06/check-etcd-health.sh
 ----
 
 .Sample Output
-[source,textinfo]
+[source,text]
 ----
-{10.0.28.47:9979}   66.9
-{10.0.58.247:9979}  67.5
-{10.0.95.86:9979}   66.9
+══════════════════════════════════════════════════
+  Module 6 — etcd Health Check
+══════════════════════════════════════════════════
+[INFO]  Step 1/3 — Locating Prometheus route …
+[OK]    Prometheus : https://prometheus-k8s-openshift-monitoring.apps.student.…
+
+[INFO]  Step 2/3 — Minting Prometheus service-account token …
+[OK]    Token acquired (1287 chars)
+
+[INFO]  Step 3/3 — Querying etcd database size …
+
+  INSTANCE                    SIZE (MiB)  % OF QUOTA  STATUS
+  --------------------------  ----------  ----------  ------
+  10.0.28.47:9979                  171.8        2.1%  OK       ← leader
+  10.0.58.247:9979                 170.0        2.1%  OK
+  10.0.95.86:9979                  171.1        2.1%  OK
+
+[OK]    All members below 4 GiB warning threshold (8 GiB quota).
+
+  ┌─────────────────────────────────────────────────────┐
+  │               etcd QUOTA REFERENCE                  │
+  ├─────────────────────────────────────────────────────┤
+  │  Warning threshold :     4096 MiB  (4 GiB)          │
+  │  Hard quota        :     8192 MiB  (8 GiB)          │
+  │  At hard quota     : API server rejects all writes  │
+  └─────────────────────────────────────────────────────┘
+
+  The Wave 3 kube-burner job creates 20 Deployments + ReplicaSets
+  in rapid succession. Watch the SIZE column tick upward compared
+  to the value recorded at the start of the simulation.
 ----
 
-The value is in MiB. Your numbers will vary slightly from this example — what matters is watching for the value to tick upward compared to your baseline.
+Your numbers will vary — what matters is watching the *SIZE (MiB)* column tick upward compared to your baseline run before Wave 3.
 
 Check API response time as a rough proxy for etcd health:
 
