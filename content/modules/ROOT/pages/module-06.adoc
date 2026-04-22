@@ -215,8 +215,18 @@ Open the Multi-Cluster Capacity Planning dashboard you created in Module 5:
 echo "RHACM Grafana: {hub_grafana_url}"
 ----
 
-Navigate to:
-* Dashboards → Multi-Cluster Capacity Planning
+. Open the URL printed above in a new browser tab.
+. If prompted to log in, click *Log in with OpenShift* and enter your hub credentials:
++
+[cols="1,2",options="header"]
+|===
+|Field |Value
+|Username |`{hub_username}`
+|Password |`{hub_password}`
+|===
++
+. Click *Log in* — you are redirected back to Grafana automatically.
+. In the left sidebar navigate to: *Dashboards* → *Multi-Cluster Capacity Planning*
 
 Keep this open in a separate browser window - you'll need it during the simulation.
 
