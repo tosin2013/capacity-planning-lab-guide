@@ -14,7 +14,7 @@
 #   oc delete deployment -n capacity-workshop -l app=etcd-pressure
 global:
   gc: false           # keep deployments so etcd churn is visible in Prometheus
-  waitWhenFinished: true
+  waitWhenFinished: false  # replicas=0 Deployments have no pods; skip readiness wait
   measurements: []
 
 jobs:
@@ -23,8 +23,11 @@ jobs:
     jobIterations: 20
     namespacedIterations: false
     waitForDeletion: false
-    maxWaitTimeout: 2m
+    waitWhenFinished: false  # overrides global — no pods to wait for
+    maxWaitTimeout: 30s
     jobPause: 0s
+    qps: 10
+    burst: 20
     objects:
       - objectTemplate: wave3-pressure-deploy.yaml
         replicas: 1
