@@ -1,54 +1,45 @@
 ---
-# Playbook: setup-lightspeed.yml
+# DEV / TEST WRAPPER — for local testing without agd.
 #
-# Installs and configures OpenShift Lightspeed on the student cluster to use
-# the RHDP LiteMaaS LiteLLM proxy for Module 8 of the capacity-planning workshop.
+# Production path (RHDP):
+#   1. Add ocp4_workload_lightspeed to workloads: in agnosticd-v2-vars/student-compact-aws.yml
+#   2. Set ocp4_workload_lightspeed_litemaas_api_token in the per-student vars file
+#   3. Run: agd provision -g <guid> -c openshift-workloads -a <account>
 #
-# Usage (standalone):
-#   ansible-playbook setup-lightspeed.yml \
-#     -e litemaas_api_token=sk-your-virtual-key \
-#     -e litemaas_model_comparison=openai/qwen3-14b
+# This playbook wraps the ocp4_workload_lightspeed role with ACTION: provision so
+# it can be run directly with ansible-playbook for development and testing.
 #
-# Usage (from AgnosticD workload after rhpds.litellm_virtual_keys creates the key):
-#   ansible-playbook setup-lightspeed.yml \
-#     -e litemaas_api_token="{{ agnosticd_user_info.litemaas_api_key }}" \
-#     -e litemaas_model_primary=openai/granite-3-2-8b-instruct \
-#     -e litemaas_model_comparison=openai/qwen3-14b \
-#     -e lightspeed_introspection_enabled=true
-#
-# To enable the Module 8D model comparison, confirm qwen3-14b is in the
-# allowed_models list of the virtual key, or request a custom LiteMaaS package.
-#
-# Model ID verification:
+# Usage:
+#   # Verify available model IDs first
+#   TOKEN=sk-your-virtual-key
 #   curl -s -H "Authorization: Bearer $TOKEN" \
-#     https://litellm-prod-frontend.apps.maas.redhatworkshops.io/v1/models \
-#     | jq '.data[].id'
+#     https://litellm-prod.apps.maas.redhatworkshops.io/v1/models | jq '.data[].id'
+#
+#   # Install with granite only (standard lab-prod package)
+#   KUBECONFIG=... ansible-playbook setup-lightspeed.yml \
+#     -e ocp4_workload_lightspeed_litemaas_api_token=$TOKEN
+#
+#   # Install with both models (requires qwen3 in allowed_models)
+#   KUBECONFIG=... ansible-playbook setup-lightspeed.yml \
+#     -e ocp4_workload_lightspeed_litemaas_api_token=$TOKEN \
+#     -e ocp4_workload_lightspeed_model_comparison=qwen3-14b \
+#     -e ocp4_workload_lightspeed_introspection_enabled=true
 #
 # Prerequisites:
-#   - OCP 4.21+ with cluster-admin access
-#   - KUBECONFIG pointing at the student cluster
-#   - ansible-galaxy collection install kubernetes.core
+#   ansible-galaxy collection install kubernetes.core
 
-- name: Configure OpenShift Lightspeed for Module 8
+- name: Configure OpenShift Lightspeed for Module 8 (dev/test wrapper)
   hosts: localhost
   connection: local
   gather_facts: false
 
   vars:
-    # Override on the command line with -e litemaas_api_token=sk-...
-    litemaas_api_token: ""
-
-  pre_tasks:
-    - name: Ensure the openshift-lightspeed namespace exists
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: openshift-lightspeed
-            labels:
-              openshift.io/cluster-monitoring: "true"
+    ACTION: provision
+    # Override on the command line with -e ocp4_workload_lightspeed_litemaas_api_token=sk-...
+    ocp4_workload_lightspeed_litemaas_api_token: ""
+    # openshift_cluster_ingress_domain is required by agnosticd_user_info step.
+    # Set it to the actual ingress domain when running standalone.
+    openshift_cluster_ingress_domain: "{{ lookup('env', 'OCP_INGRESS_DOMAIN') | default('') }}"
 
   roles:
-    - role: lightspeed_setup
+    - role: ocp4_workload_lightspeed

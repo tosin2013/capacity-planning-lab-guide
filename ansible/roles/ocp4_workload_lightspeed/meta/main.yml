@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  author: Tosin Akinosho
+  description: >
+    Installs the OpenShift Lightspeed Operator via OLM and configures it to use
+    the RHDP LiteMaaS LiteLLM proxy as its LLM backend. Module 8 prerequisite
+    for the Strategic Capacity Planning & Forecasting workshop.
+  company: Red Hat
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+
+dependencies: []

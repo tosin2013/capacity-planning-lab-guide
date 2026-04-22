@@ -70,6 +70,87 @@ When the platform team enables *cluster interaction* (`introspectionEnabled: tru
 
 In this workshop, cluster interaction may be pre-enabled on your student cluster. If it is, questions like "which of my namespaces is most over-requested?" will return live data from your cluster.
 
+=== How Lightspeed is Provisioned
+
+Your student cluster receives OpenShift Lightspeed automatically during provisioning. The platform team uses an *AgnosticD v2 workload role* called `ocp4_workload_lightspeed` to install and configure it. Understanding this provisioning model helps you manage Lightspeed environments as a platform engineer.
+
+==== The AgnosticD Workload Pattern
+
+AgnosticD v2 deploys workloads by listing role names in a `workloads:` array. For the Capacity Planning Workshop, `student-compact-aws.yml` includes:
+
+[source,yaml]
+----
+workloads:
+  - agnosticd.core_workloads.ocp4_workload_cert_manager
+  - agnosticd.core_workloads.ocp4_workload_openshift_gitops
+  - ocp4_workload_capacity_planning_workshop
+  - ocp4_workload_lightspeed          # <-- Module 8
+----
+
+Each role receives `ACTION: provision` and applies its changes idempotently to the cluster. Running `agd provision -c openshift-workloads` re-runs all workloads safely.
+
+==== What `ocp4_workload_lightspeed` Does
+
+The role performs these seven steps in order:
+
+[cols="1,3",options="header"]
+|===
+|Step|What It Does
+
+|1 Namespace
+|Creates `openshift-lightspeed` with `openshift.io/cluster-monitoring: "true"` so Prometheus scrapes Lightspeed metrics.
+
+|2 OperatorGroup
+|Creates an OperatorGroup in *OwnNamespace* mode. This is required — the Lightspeed Operator does not support AllNamespaces install mode.
+
+|3 Subscription
+|Subscribes to the `lightspeed-operator` package from `redhat-operators` on the `stable` channel.
+
+|4 Wait for operator
+|Polls the `lightspeed-operator-controller-manager` pod (label: `control-plane=controller-manager`) until it is Running.
+
+|5 LiteMaaS Secret
+|Creates a Kubernetes Secret (`litemaas-credentials`) containing the API token used by OLSConfig to authenticate with the LiteMaaS proxy.
+
+|6 OLSConfig
+|Applies the cluster-scoped `OLSConfig` CR pointing to the LiteMaaS endpoint with model `granite-3-2-8b-instruct`.
+
+|7 Wait for service
+|Polls the `lightspeed-app-server` pod (label: `app.kubernetes.io/name=lightspeed-service-api`) until it is Running.
+|===
+
+==== The LiteMaaS Token Flow
+
+[source]
+----
+rhpds.litellm_virtual_keys  →  agnosticd_user_info.litemaas_api_key
+        ↓
+ocp4_workload_lightspeed_litemaas_api_token  (in student-01-workloads.yml)
+        ↓
+Kubernetes Secret: litemaas-credentials  (in openshift-lightspeed namespace)
+        ↓
+OLSConfig.spec.llm.providers[0].credentialsSecretRef
+        ↓
+lightspeed-app-server  →  LiteMaaS API  →  granite-3-2-8b-instruct
+----
+
+The `rhpds.litellm_virtual_keys` Ansible collection creates a per-GUID virtual key with the `lab-prod` package (Granite + Mistral, 90-day TTL). In production, this key flows automatically through `agnosticd_user_info`. For local development, pass it directly with `-e ocp4_workload_lightspeed_litemaas_api_token=sk-...`.
+
+==== Local Development
+
+Platform engineers can re-install or update Lightspeed on any cluster without running a full `agd` cycle:
+
+[source,bash]
+----
+# From capacity-planning-lab-guide/ansible/
+export KUBECONFIG=/path/to/kubeconfig
+ansible-playbook setup-lightspeed.yml \
+  -e ocp4_workload_lightspeed_litemaas_api_token=<your-key> \
+  -e openshift_cluster_ingress_domain=apps.<guid>.<base_domain>
+----
+
+This dev/test wrapper calls `ocp4_workload_lightspeed` with `ACTION: provision` — the same role the RHDP platform runs in production.
+
 === Where to Find Lightspeed in the OCP Console
 
 Lightspeed appears as a *lightbulb icon* in the top-right toolbar of the OpenShift web console, next to the question-mark help icon. Click it to open the chat panel.

@@ -1,0 +1,43 @@
+---
+# Become (root) is not required for OCP workloads
+become_override: false
+
+# Namespace for the Lightspeed Operator. Do not change.
+ocp4_workload_lightspeed_namespace: openshift-lightspeed
+
+# OLM Subscription channel for the Lightspeed Operator.
+ocp4_workload_lightspeed_channel: stable
+
+# LiteMaaS endpoint — the shared RHDP Model-as-a-Service LiteLLM proxy.
+# NOTE: The API endpoint is litellm-prod (not litellm-prod-frontend).
+# litellm-prod-frontend serves the web UI; the OpenAI-compatible API lives on litellm-prod.
+# Verified 2026-04-22.
+ocp4_workload_lightspeed_litemaas_api_url: "https://litellm-prod.apps.maas.redhatworkshops.io/v1"
+
+# API token for the LiteMaaS proxy.
+# In AgnosticD, set this from agnosticd_user_info after rhpds.litellm_virtual_keys runs:
+#   ocp4_workload_lightspeed_litemaas_api_token: "{{ agnosticd_user_info.litemaas_api_key }}"
+# Never hardcode a token here — always set it in the vars file.
+ocp4_workload_lightspeed_litemaas_api_token: ""
+
+# Primary model shown by default in the Lightspeed chat UI.
+# Model IDs are bare slugs — no "openai/" prefix.
+# Verified against live LiteMaaS endpoint 2026-04-22.
+ocp4_workload_lightspeed_model_primary: "granite-3-2-8b-instruct"
+
+# Optional comparison model for Lab 8D.
+# qwen3-14b is NOT in the standard RHDP lab-prod subscription package.
+# It requires a custom LiteMaaS model package — contact the MaaS team.
+# Leave empty ("") to skip; when set it must appear in the key's allowed_models list.
+ocp4_workload_lightspeed_model_comparison: ""
+
+# OLSConfig: enable cluster interaction (MCP introspection).
+# Technology Preview as of OCP 4.21. When true, Lightspeed reads live cluster
+# state via an MCP server and can answer projection questions against real metrics.
+ocp4_workload_lightspeed_introspection_enabled: false
+
+# How long to wait for the operator pod to be Running.
+# retries × delay = total wait time in seconds (42 × 10 = 7 minutes).
+# Image pull from registry.redhat.io can take up to 6 minutes on a fresh cluster.
+ocp4_workload_lightspeed_operator_wait_retries: 42
+ocp4_workload_lightspeed_operator_wait_delay: 10

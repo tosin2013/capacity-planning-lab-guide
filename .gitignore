@@ -1,6 +1,10 @@
 # Ignore macOS system files
 .DS_Store
 
+# Ignore agnosticd provisioning output files
+ansible/provision-user-data.yaml
+ansible/provision-user-info.yaml
+
 # Ignore node_modules directory
 node_modules/
 

@@ -1,0 +1,16 @@
+---
+- name: Delete OLSConfig CR
+  kubernetes.core.k8s:
+    state: absent
+    api_version: ols.openshift.io/v1alpha1
+    kind: OLSConfig
+    name: cluster
+  ignore_errors: true
+
+- name: Delete openshift-lightspeed namespace
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Namespace
+    name: "{{ ocp4_workload_lightspeed_namespace }}"
+  ignore_errors: true
