@@ -1,0 +1,30 @@
+---
+# kube-burner v2 job config — Module 6 Wave 3: etcd Pressure Simulation
+#
+# Creates 20 Deployments at replicas=0 in rapid succession.
+# Each create/update cycle generates Deployment, ReplicaSet, and Event objects
+# in etcd, rapidly inflating the database size toward the 4 GB warning threshold.
+#
+# Expected effect:
+#   - etcd DB size increases visibly in Prometheus
+#   - API response times degrade (sluggish oc commands)
+#   - Cluster is still functional, demonstrating the early warning window
+#
+# Cleanup (Decision Point #3 — Option B):
+#   oc delete deployment -n capacity-workshop -l app=etcd-pressure
+global:
+  gc: false           # keep deployments so etcd churn is visible in Prometheus
+  waitWhenFinished: true
+  measurements: []
+
+jobs:
+  - name: etcd-pressure-wave3
+    namespace: capacity-workshop
+    jobIterations: 20
+    namespacedIterations: false
+    waitForDeletion: false
+    maxWaitTimeout: 2m
+    jobPause: 0s
+    objects:
+      - objectTemplate: wave3-pressure-deploy.yaml
+        replicas: 1

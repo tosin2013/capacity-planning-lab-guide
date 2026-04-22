@@ -1,0 +1,31 @@
+---
+# kube-burner v2 job config — Module 6 Wave 1: Black Friday Traffic Spike
+#
+# Deploys 5 HTTP load-test pods targeting the critical-app ClusterIP service.
+# Each pod runs wrk continuously, driving critical-app CPU above the 75% HPA
+# threshold so critical-app-hpa scales the Deployment from 2 → up to 10 replicas.
+#
+# Expected effect:
+#   - critical-app CPU utilization rises above 75%
+#   - critical-app-hpa fires and scales critical-app
+#   - New replicas may be Pending if nodes are at capacity
+#   - load-generator HPA may also scale due to increased request volume
+#
+# Cleanup (Wave 4 recovery):
+#   oc delete pod -n capacity-workshop -l app=black-friday-load
+global:
+  gc: false           # keep pods running so HPA stays active throughout Wave 1
+  waitWhenFinished: true
+  measurements: []
+
+jobs:
+  - name: black-friday-wave1
+    namespace: capacity-workshop
+    jobIterations: 5
+    namespacedIterations: false
+    waitForDeletion: false
+    maxWaitTimeout: 2m
+    jobPause: 0s
+    objects:
+      - objectTemplate: wave1-load-pod.yaml
+        replicas: 1

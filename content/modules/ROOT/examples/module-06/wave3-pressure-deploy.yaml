@@ -1,0 +1,37 @@
+---
+# kube-burner Deployment template — etcd event churn (Wave 3)
+#
+# Deployments at replicas=0 generate Deployment + ReplicaSet + Event objects
+# without actually scheduling any pods, keeping node load unaffected while
+# still driving up etcd database size through object/event churn.
+#
+# The explicit label app=etcd-pressure on the Deployment metadata allows
+# bulk cleanup with a single label-selector delete:
+#   oc delete deployment -n capacity-workshop -l app=etcd-pressure
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd-pressure-{{.Iteration}}
+  labels:
+    app: etcd-pressure
+    wave: "3"
+    demo.redhat.com/application: capacity-workshop
+    module: "6"
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: etcd-pressure-{{.Iteration}}
+  template:
+    metadata:
+      labels:
+        app: etcd-pressure-{{.Iteration}}
+    spec:
+      containers:
+      - name: pressure
+        image: registry.access.redhat.com/ubi9/ubi-micro:latest
+        command: ["/bin/sh", "-c", "sleep infinity"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi

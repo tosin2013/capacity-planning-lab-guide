@@ -1,0 +1,41 @@
+---
+# kube-burner pod template — Black Friday HTTP load generator (Wave 1)
+#
+# Runs a continuous wrk load test against the critical-app ClusterIP service.
+# 5 pods firing simultaneously (4 threads, 50 connections each) drives
+# critical-app CPU well above the 75% HPA target, triggering scale-out.
+#
+# Resources are intentionally small (100m request) so these pods schedule
+# easily even on a busy cluster; the load they generate is what matters.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bf-load-{{.Iteration}}-{{.Replica}}
+  labels:
+    app: black-friday-load
+    wave: "1"
+    demo.redhat.com/application: capacity-workshop
+    module: "6"
+spec:
+  containers:
+  - name: load
+    image: williamyeh/wrk:latest
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        echo "=== Black Friday Load Simulation - Wave 1 ==="
+        echo "Pod: bf-load-{{.Iteration}}-{{.Replica}}"
+        echo "Target: http://critical-app:80  (4 threads, 50 connections)"
+        echo "Simulating 10x normal traffic surge..."
+        while true; do
+          wrk -t4 -c50 -d30s --latency http://critical-app:80 \
+            || { echo "critical-app not ready, retrying in 5s..."; sleep 5; }
+        done
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+  restartPolicy: Never

@@ -71,7 +71,61 @@ SSH password: `{student-cluster-password}`
 
 === Pre-Simulation Setup
 
-Before we start the chaos, let's establish baseline metrics.
+Before we start the chaos, download the lab files and establish baseline metrics.
+
+==== Download Lab Files
+
+Download the kube-burner job configs for Waves 1 and 3.
+The kube-burner binary was installed in Module 3 and can be reused here.
+
+[source,bash,subs="+attributes",role=execute]
+----
+mkdir -p ~/module-06 && cd ~/module-06
+BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
+curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave1-traffic-spike.yaml
+curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave1-load-pod.yaml
+curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave3-etcd-pressure.yaml
+curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave3-pressure-deploy.yaml
+ls -lh
+----
+
+.Sample Output
+[source,text]
+----
+-rw-r--r--. 1 lab-user lab-user  892 Apr 22 wave1-load-pod.yaml
+-rw-r--r--. 1 lab-user lab-user  748 Apr 22 wave1-traffic-spike.yaml
+-rw-r--r--. 1 lab-user lab-user  820 Apr 22 wave3-etcd-pressure.yaml
+-rw-r--r--. 1 lab-user lab-user  776 Apr 22 wave3-pressure-deploy.yaml
+----
+
+Verify the kube-burner binary from Module 3 is still available:
+
+[source,bash,subs="+attributes",role=execute]
+----
+~/module-03/kube-burner version
+----
+
+.Sample Output
+[source,text]
+----
+Version: 2.6.1
+Git Commit: ...
+Build Date: ...
+----
+
+[NOTE]
+====
+If you have not completed Module 3, download kube-burner now:
+
+[source,bash,subs="+attributes",role=execute]
+----
+mkdir -p ~/module-03 && cd ~/module-03
+curl -sL https://github.com/kube-burner/kube-burner/releases/download/v2.6.1/kube-burner-V2.6.1-linux-x86_64.tar.gz \
+  | tar -xz kube-burner
+chmod +x kube-burner
+./kube-burner version
+----
+====
 
 ==== Step 1: Check Current Cluster State
 
@@ -121,13 +175,15 @@ oc get hpa -n {namespace}
 .Sample Output
 [source,textinfo]
 ----
-NAME             REFERENCE                   TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
-load-generator   Deployment/load-generator   32%/75%   1         5         1          2d
+NAME               REFERENCE                   TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+critical-app-hpa   Deployment/critical-app     cpu: 0%/75%, memory: 25%/80%   2         10        2          5d
+load-generator     Deployment/load-generator   cpu: 32%/75%                   1         5         1          5d
 ----
 
 Baseline:
-* Current utilization: 32%
-* HPA will scale at 75%
+* `critical-app-hpa`: scales `critical-app` at 75% CPU or 80% memory (min 2, max 10 replicas)
+* `load-generator` HPA: monitors load-generator scaling under traffic pressure (min 1, max 5)
+* Both HPAs will respond during the Black Friday simulation
 
 ==== Step 4: Check Current Resource Allocation
 
@@ -156,7 +212,7 @@ Open the Multi-Cluster Capacity Planning dashboard you created in Module 5:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-echo "RHACM Grafana: {grafana_url}"
+echo "RHACM Grafana: {hub_grafana_url}"
 ----
 
 Navigate to:
@@ -166,28 +222,48 @@ Keep this open in a separate browser window - you'll need it during the simulati
 
 === Wave 1: The Traffic Spike (T+0 to T+15 minutes)
 
-[IMPORTANT]
+[NOTE]
 ====
-*Facilitator Action*:
+Ensure you have downloaded the lab files and have the kube-burner binary from Module 3 ready:
 
-The facilitator will now run the traffic generator script to simulate Black Friday load:
+[source,bash,subs="+attributes",role=execute]
+----
+ls ~/module-06/wave1-traffic-spike.yaml ~/module-03/kube-burner
+----
+====
 
-```bash
-# Facilitator runs this (students observe)
-oc scale deployment load-generator -n capacity-workshop --replicas=5
-oc set env deployment/critical-app -n capacity-workshop TARGET_RPS=1000
-```
+==== Your Action: Trigger the Black Friday Load Spike
+
+Run the kube-burner job to simulate Black Friday traffic overwhelming the cluster.
+This deploys 5 HTTP load-test pods that continuously fire requests at `critical-app`,
+driving its CPU above the 75% HPA threshold:
+
+[source,bash,subs="+attributes",role=execute]
+----
+cd ~/module-06
+~/module-03/kube-burner init -c wave1-traffic-spike.yaml
+----
+
+.Sample Output
+[source,text]
+----
+INFO[...] 📁 Creating object bf-load-1-1 in namespace capacity-workshop
+INFO[...] 📁 Creating object bf-load-2-1 in namespace capacity-workshop
+INFO[...] 📁 Creating object bf-load-3-1 in namespace capacity-workshop
+INFO[...] 📁 Creating object bf-load-4-1 in namespace capacity-workshop
+INFO[...] 📁 Creating object bf-load-5-1 in namespace capacity-workshop
+INFO[...] ✅ Job black-friday-wave1 completed
+----
 
 *Expected Effect*:
-* Traffic increases 10× in 30 seconds
-* HPAs start scaling pods
-* CPU requests increase
-* Some pods may be Pending if there's insufficient capacity
-====
+* 5 load pods fire HTTP requests at `critical-app:80` simultaneously
+* `critical-app` CPU rises above 75% → `critical-app-hpa` starts scaling
+* Load-generator HPA may also scale from increased system activity
+* Some pods may be Pending if there is insufficient capacity on nodes
 
 ==== Your Actions: Monitor and Respond
 
-Watch the HPA respond to load:
+Watch both HPAs and the critical-app deployment respond to load:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
@@ -197,8 +273,9 @@ watch -n 5 'oc get hpa -n {namespace} && echo "" && oc get deployment critical-a
 .Sample Output (after 2 minutes)
 [source,textinfo]
 ----
-NAME             REFERENCE                   TARGETS    MINPODS   MAXPODS   REPLICAS   AGE
-load-generator   Deployment/load-generator   142%/75%   1         5         5          2d
+NAME               REFERENCE                   TARGETS                          MINPODS   MAXPODS   REPLICAS   AGE
+critical-app-hpa   Deployment/critical-app     cpu: 84%/75%, memory: 28%/80%   2         10        5          5d
+load-generator     Deployment/load-generator   cpu: 142%/75%                   1         5         5          5d
 
 NAME           READY   UP-TO-DATE   AVAILABLE   AGE
 critical-app   3/5     5            3           5d
@@ -234,7 +311,9 @@ Check why they're pending:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc describe pod -n {namespace} critical-app-6c4456cfc5-xk9p2 | grep -A 10 "Events:"
+PENDING_POD=$(oc get pods -n {namespace} --field-selector=status.phase=Pending \
+  -l app=critical-app -o jsonpath='{.items[0].metadata.name}')
+oc describe pod -n {namespace} "$PENDING_POD" | grep -A 10 "Events:"
 ----
 
 .Sample Output
@@ -355,14 +434,15 @@ Simulate the AWS availability zone failure:
 
 ```bash
 # Cordon 30% of worker nodes (simulate unreachable nodes)
+# Uses awk ceiling arithmetic — 'bc' truncates 0.9 to 0 on 3-node clusters
 TOTAL_NODES=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l)
-CORDON_COUNT=$(echo "$TOTAL_NODES * 0.3 / 1" | bc)  # 30% rounded down
+CORDON_COUNT=$(awk -v n="$TOTAL_NODES" 'BEGIN { c = n * 0.3; print (c == int(c)) ? int(c) : int(c)+1 }')
 
-oc get nodes -l node-role.kubernetes.io/worker -o name | head -n $CORDON_COUNT | xargs -I {} oc adm cordon {}
+oc get nodes -l node-role.kubernetes.io/worker --no-headers | awk '{print $1}' | head -n "$CORDON_COUNT" | xargs -I {} oc adm cordon {}
 
 # Wait 30 seconds, then drain them (simulate node shutdown)
 sleep 30
-oc get nodes -l node-role.kubernetes.io/worker -o name | head -n $CORDON_COUNT | xargs -I {} oc adm drain {} --ignore-daemonsets --delete-emptydir-data --force --grace-period=30
+oc get nodes -l node-role.kubernetes.io/worker --no-headers | awk '{print $1}' | head -n "$CORDON_COUNT" | xargs -I {} oc adm drain {} --ignore-daemonsets --delete-emptydir-data --force --grace-period=30
 ```
 
 *Expected Effect*:
@@ -520,22 +600,34 @@ ip-10-0-191-45.us-east-2.compute.internal    823m         10%    4932Mi         
 *Facilitator Narrative*:
 
 "It's now 12:30 PM. Traffic has stabilized at 8× normal levels. Your cluster is handling the load well. Then you notice something in the RHACM dashboard..."
+====
 
-*Facilitator Action*:
+Run the kube-burner job to simulate etcd pressure from event churn.
+This creates 20 zero-replica Deployments in rapid succession, inflating
+the etcd database with Deployment, ReplicaSet, and Event objects:
 
-```bash
-# Simulate high event churn (creates etcd pressure)
-for i in {1..20}; do
-  oc create deployment etcd-pressure-$i --image=registry.access.redhat.com/ubi9/ubi-micro:latest -n capacity-workshop
-  oc scale deployment etcd-pressure-$i --replicas=0 -n capacity-workshop  # Creates events but no actual load
-done
-```
+[source,bash,subs="+attributes",role=execute]
+----
+cd ~/module-06
+~/module-03/kube-burner init -c wave3-etcd-pressure.yaml
+----
 
+.Sample Output
+[source,text]
+----
+INFO[...] 📁 Creating object etcd-pressure-1 in namespace capacity-workshop
+INFO[...] 📁 Creating object etcd-pressure-2 in namespace capacity-workshop
+...
+INFO[...] 📁 Creating object etcd-pressure-20 in namespace capacity-workshop
+INFO[...] ✅ Job etcd-pressure-wave3 completed
+----
+
+[NOTE]
+====
 *Expected Effect*:
-* etcd database size increases due to event churn
+* etcd database size increases due to event churn from 20 Deployment + ReplicaSet object creates
 * API response times degrade (500ms → 2000ms)
 * `oc` commands feel sluggish
-====
 
 ==== Your Actions: Diagnose etcd Issues
 
@@ -630,8 +722,8 @@ You need to reduce etcd pressure immediately.
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-# Delete the etcd-pressure deployments
-oc delete deployment -n {namespace} -l app.kubernetes.io/name=etcd-pressure --all
+# Delete the etcd-pressure deployments (kube-burner labeled them app=etcd-pressure)
+oc delete deployment -n {namespace} -l app=etcd-pressure
 ----
 
 Wait 30 seconds for event pruning to kick in, then check again:
@@ -681,7 +773,10 @@ Uncordon the previously failed nodes:
 
 [source,bash,role=execute]
 ----
-oc get nodes -l node-role.kubernetes.io/worker -o name | grep SchedulingDisabled | xargs -I {} oc adm uncordon {}
+oc get nodes -l node-role.kubernetes.io/worker --no-headers \
+  | grep SchedulingDisabled \
+  | awk '{print $1}' \
+  | xargs -I {} oc adm uncordon {}
 ----
 
 .Sample Output
@@ -708,16 +803,19 @@ ip-10-0-180-92.us-east-2.compute.internal   Ready    worker   45m   v1.28.5+4bc5
 ip-10-0-191-45.us-east-2.compute.internal   Ready    worker   45m   v1.28.5+4bc5c35
 ----
 
-Reduce traffic load (simulate traffic subsiding):
+Reduce traffic load (simulate traffic subsiding) by removing the Wave 1 kube-burner load pods:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-# Facilitator runs this
-oc set env deployment/critical-app -n {namespace} TARGET_RPS=200
-oc scale deployment load-generator -n {namespace} --replicas=2
+# Remove the Black Friday load pods from Wave 1 (stops HTTP pressure on critical-app)
+oc delete pod -n {namespace} -l app=black-friday-load
+
+# Also scale load-generator back to baseline
+oc scale deployment load-generator -n {namespace} --replicas=1
+oc set env deployment/load-generator -n {namespace} TARGET_RPS=100
 ----
 
-Watch HPA scale down:
+Watch both HPAs scale down:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
@@ -727,8 +825,9 @@ watch -n 10 'oc get hpa -n {namespace} && echo "" && oc get deployment critical-
 .Sample Output (after 5 minutes)
 [source,textinfo]
 ----
-NAME             REFERENCE                   TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
-load-generator   Deployment/load-generator   28%/75%   1         5         2          2d
+NAME               REFERENCE                   TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+critical-app-hpa   Deployment/critical-app     cpu: 2%/75%, memory: 25%/80%   2         10        2          5d
+load-generator     Deployment/load-generator   cpu: 28%/75%                   1         5         1          5d
 
 NAME           READY   UP-TO-DATE   AVAILABLE   AGE
 critical-app   2/2     2            2           5d
