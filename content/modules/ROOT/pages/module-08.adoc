@@ -198,7 +198,7 @@ Both models are available without any local GPU. They are served by the RHDP Mod
 
 _20 minutes — Revisits Module 3 topics_
 
-In Module 3 you experienced OOMKilled pods, CPU throttling, QoS classes, and HPA configuration hands-on. In this lab you will ask Lightspeed the same questions a developer would ask in production — and compare the AI's answer against what you learned in the lab.
+In Module 3 you experienced OOMKilled pods, CPU throttling, QoS classes, and HPA configuration hands-on. In this lab you will ask Lightspeed about the exact apps you worked with — and compare its answers against what you observed directly.
 
 [NOTE]
 ====
@@ -215,8 +215,10 @@ Type the following prompt into the Lightspeed chat exactly as shown:
 
 [source,text]
 ----
-My pod keeps restarting with exit code 137. How do I diagnose an OOMKilled event
-and use historical Prometheus data to set an accurate memory request?
+I have a pod called besteffort-app in the capacity-workshop namespace.
+It has no memory requests or limits set. How do I check whether it has
+been OOMKilled, and what Prometheus metric should I use to determine an
+accurate memory request for it?
 ----
 
 .What to look for in the response
@@ -230,30 +232,51 @@ A good answer will mention:
 * Setting memory limit slightly above the 95th-percentile observed usage
 * The difference between requests (scheduling baseline) and limits (hard ceiling)
 
-Does Lightspeed's answer match what you observed in Lab 3, Part 6?
+Does Lightspeed's answer match what you observed when you ran `besteffort-app` without limits in Lab 3?
+====
+
+[NOTE]
+.Using this prompt in your own environment
+====
+Replace `besteffort-app` and `capacity-workshop` with your own pod name and namespace.
+The diagnostic approach is the same for any pod regardless of its name.
 ====
 
 === Query 2: QoS classes in plain language
 
 [source,text]
 ----
-Explain Kubernetes QoS classes — Guaranteed, Burstable, and BestEffort — in
-plain language for a developer who has never read the Kubernetes docs.
-Include which class gets evicted first when a node runs out of memory.
+I have three apps in my capacity-workshop namespace:
+- guaranteed-app: CPU and memory requests equal limits (200m CPU / 256Mi)
+- burstable-app: has a 100m CPU request but no limit
+- besteffort-app: no resource requests or limits set at all
+
+Explain which QoS class each app is in, and what happens to each one
+when the node runs low on memory. Which gets evicted first?
 ----
 
 .Reflection
 [NOTE]
 ====
-Compare the length and tone of this response to the Module 3 explanation. Notice how Lightspeed frames the developer social contract: requests are not restrictions, they are a promise to the scheduler.
+Compare this response to what you saw in Module 3 when you deliberately induced memory pressure. Notice whether Lightspeed's eviction ordering matches the behaviour you observed — `besteffort-app` should be first, `burstable-app` second, and `guaranteed-app` last (or never, if limits are set correctly).
+====
+
+[NOTE]
+.Using this prompt in your own environment
+====
+Replace the three app names and resource values with your own deployments.
+Any namespace with a mix of Guaranteed, Burstable, and BestEffort pods works equally well.
 ====
 
 === Query 3: HPA with a custom Prometheus metric
 
 [source,text]
 ----
-How do I configure a HorizontalPodAutoscaler on OpenShift to scale based on
-a custom Prometheus metric from my application? Show me the YAML.
+My load-generator app in the capacity-workshop namespace has CPU requests
+of 100m and limits of 500m. I set up a basic CPU HPA on it in a previous
+lab. Show me how to change it to scale based on a custom Prometheus metric
+— for example, the number of HTTP requests per second — instead of CPU.
+Show me the YAML.
 ----
 
 .What to look for
@@ -266,15 +289,24 @@ The answer should reference:
 * An HPA manifest using `spec.metrics[].type: Pods` or `type: External`
 * The relationship between the metric value and the target threshold
 
-This is a harder question than "create a basic CPU HPA." If the model gives a generic answer about CPU HPA instead, try rephrasing with: "I want to scale based on a metric called `http_requests_per_second` from Prometheus."
+If the model gives a generic answer that ignores the existing CPU HPA, follow up with: "I already have a CPU HPA on load-generator. Show me the full updated YAML that replaces the CPU metric with `http_requests_per_second`."
+====
+
+[NOTE]
+.Using this prompt in your own environment
+====
+Replace `load-generator` and `capacity-workshop` with your own deployment and namespace.
+The HPA YAML pattern is the same regardless of the app name.
 ====
 
 === Query 4: CPU throttling PromQL
 
 [source,text]
 ----
-Write a PromQL query that shows the CPU throttling rate for all pods in a
-specific namespace. I want to see it as a percentage of throttled CPU time.
+Write a PromQL query that shows the CPU throttling rate as a percentage
+for every pod in my capacity-workshop namespace. My cpu-throttle-demo pod
+has a 200m CPU limit but runs a burn loop that tries to use far more.
+I want to be able to see that throttling clearly in the query output.
 ----
 
 .Sample expected output
@@ -290,7 +322,14 @@ sum by (pod, namespace) (
 
 [IMPORTANT]
 ====
-*Test every PromQL query* Lightspeed writes before using it in a dashboard. Run it in the OCP console Observe → Metrics (or Thanos UI if using RHACM). Lightspeed can produce syntactically correct queries that don't match your actual metric label names — verify that `container_cpu_cfs_throttled_seconds_total` exists in your cluster before building a dashboard panel around it.
+*Test every PromQL query* Lightspeed writes before using it in a dashboard. Run it in the OCP console Observe → Metrics. Lightspeed can produce syntactically correct queries that don't match your actual metric label names — verify that `container_cpu_cfs_throttled_seconds_total` exists in your cluster before building a dashboard panel around it.
+====
+
+[NOTE]
+.Using this prompt in your own environment
+====
+Replace `capacity-workshop` with your namespace and `cpu-throttle-demo` with whatever
+pod you want to highlight. The throttling PromQL pattern works on any namespace.
 ====
 
 '''
@@ -300,15 +339,17 @@ sum by (pod, namespace) (
 
 _20 minutes — Revisits Modules 4 & 5_
 
-In Modules 4 and 5 you worked through node density mathematics, etcd constraints, and RHACM observability. Now you will ask Lightspeed the operational questions an infrastructure engineer faces when managing a fleet of OpenShift clusters.
+In Modules 4 and 5 you worked through node density mathematics, etcd constraints, and RHACM observability. Now you will ask Lightspeed the operational questions an infrastructure engineer faces — using your actual cluster topology as the context.
 
 === Query 1: Increasing maxPods safely
 
 [source,text]
 ----
-How do I safely increase the maximum number of pods per worker node beyond
-the default 250 on OpenShift 4.21? What are the risks and what should I
-monitor after making the change?
+My OpenShift cluster has 3 nodes that are all running as combined
+control-plane and worker nodes. I want to support more workloads in
+the capacity-workshop namespace. How do I safely raise the maxPods
+limit above the default 250 on OpenShift 4.21, and what are the specific
+risks of doing this on nodes that run both control-plane and workload pods?
 ----
 
 .What to look for
@@ -318,21 +359,29 @@ A complete answer will cover:
 
 * Editing a `KubeletConfig` CR (`spec.kubeletConfig.maxPods`) — not editing `kubelet.conf` directly
 * The `MachineConfigPool` selector to target specific node types
+* Extra risk on combined control-plane/worker nodes: pushing the scheduler onto nodes that also run etcd, the API server, and the controller manager
 * Memory overhead increase per pod (DaemonSets consume slots too)
-* etcd pressure from increased object count at high density
 * Monitoring: `kubelet_running_pods` metric and etcd `etcd_db_total_size_in_bytes`
-* The 500-pod-per-node soft limit and why Red Hat recommends testing before fleet-wide rollout
 
-Does Lightspeed mention that this triggers a node drain/reboot via MachineConfig? That is critical operational information a Module 4 engineer must know.
+Does Lightspeed flag that this triggers a node drain/reboot via MachineConfig? That is critical on a 3-node cluster — the cluster has no dedicated workers to absorb the load during a rolling restart.
+====
+
+[NOTE]
+.Using this prompt in your own environment
+====
+Replace the node count and role description with your own cluster topology.
+The `KubeletConfig` approach works on any OpenShift 4.x cluster; the risk profile
+changes depending on whether your nodes are dedicated workers or combined roles.
 ====
 
 === Query 2: etcd sizing and monitoring
 
 [source,text]
 ----
-What are the etcd database size limits on OpenShift, and how do I write a
-PromQL query to track etcd database growth over time so I can forecast
-when I need to defrag or add control plane capacity?
+Write a PromQL query to check the current etcd database size on my
+OpenShift cluster and estimate how quickly it is growing. My cluster
+has 3 control-plane nodes. I want to know when I should defrag or
+plan for additional control plane capacity.
 ----
 
 .Sample PromQL output to expect
@@ -345,13 +394,22 @@ etcd_mvcc_db_total_size_in_bytes
 deriv(etcd_mvcc_db_total_size_in_bytes[7d]) * 86400
 ----
 
+[NOTE]
+.Using this prompt in your own environment
+====
+The PromQL queries are cluster-agnostic — they work on any OpenShift cluster regardless
+of size. Update the control-plane node count to match your own topology.
+====
+
 === Query 3: Cluster architecture trade-offs
 
 [source,text]
 ----
-We run a single 500-node OpenShift cluster for all teams. At what point
-should we consider splitting it into multiple smaller clusters, and what
-are the operational trade-offs of federation versus consolidation?
+I run a 3-node OpenShift training cluster where all nodes are combined
+control-plane and workers, and I use a single capacity-workshop namespace
+for all student workloads. As I scale to more students and cohorts, when
+does it make more sense to keep growing this single cluster versus deploying
+separate per-student clusters? What are the operational trade-offs?
 ----
 
 .Reflection
@@ -360,23 +418,33 @@ are the operational trade-offs of federation versus consolidation?
 This question has no single right answer. Notice whether Lightspeed frames the decision around:
 
 * etcd object count limits (~8 GB database size as a hard threshold)
-* Network blast radius (one control plane failure vs. isolated failures)
-* Tenant isolation requirements
+* The added risk of co-locating student workloads on control-plane nodes
+* Network blast radius (one shared cluster vs. isolated per-student failures)
 * RHACM management overhead per cluster
-* Multi-tenancy via namespaces vs. dedicated cluster per team
+* Namespace-level multi-tenancy vs. dedicated cluster per cohort
 
-Compare this to the Module 4 discussion of when fleet federation makes sense.
+Compare this to the Module 4 discussion of when fleet federation makes sense. The 3-node combined topology is a real constraint that a generic "500-node cluster" scenario ignores.
+====
+
+[NOTE]
+.Using this prompt in your own environment
+====
+Replace the node count and use-case description with your own. The federation-vs-consolidation
+trade-off analysis is relevant at any scale — substitute your own workload pattern.
 ====
 
 === Query 4: RHACM capacity dashboard PromQL
 
 [source,text]
 ----
-I'm building an RHACM Grafana capacity dashboard for a fleet of OpenShift
-clusters. Write three PromQL queries I should include:
+I connected my student cluster to an RHACM hub in Module 5 and I'm
+building a Grafana capacity dashboard on the hub. Write three PromQL
+queries for my capacity-workshop namespace:
 1. CPU request overcommit ratio per namespace across all clusters
 2. Memory utilisation versus allocated capacity per cluster
 3. The number of pods per node to identify density hotspots
+
+Use the cluster label so each cluster appears separately in the dashboard.
 ----
 
 [TIP]
@@ -394,6 +462,14 @@ sum by (namespace, cluster) (kube_node_status_allocatable{resource="cpu"})
 If Lightspeed omits the `cluster` label, follow up with: "These queries will run against RHACM Thanos. Add the `cluster` label to the `by()` clause so each cluster appears separately in Grafana."
 ====
 
+[NOTE]
+.Using this prompt in your own environment
+====
+Replace `capacity-workshop` with your own namespace. The three PromQL patterns work for
+any namespace on any RHACM-managed cluster — the `cluster` label is injected automatically
+by Thanos Federation.
+====
+
 '''
 
 [#lab8c]
@@ -407,12 +483,7 @@ This lab is the capstone of the workshop. You will use Lightspeed to operational
 ====
 *How this lab works*
 
-Most prompts below include placeholder data (italicised in brackets). For the best results, substitute real numbers from your student cluster:
-
-* Replace `_[your namespace]_` with `capacity-workshop`
-* For queries 2 and 4, use numbers from your Module 2 and Module 3 lab results if you have them, or use the placeholder values provided
-
-The more specific your input, the more actionable Lightspeed's output will be.
+The prompts below use your `capacity-workshop` namespace and your cluster's actual node count. For Queries 2 and 5, representative numbers are provided based on the workshop cluster — if your Module 2 Pod Velocity dashboard showed different values, substitute them for even more accurate results.
 ====
 
 === Query 1: Pod Velocity PromQL (Module 2 revisited)
@@ -447,8 +518,9 @@ The key concept from Module 2 is that Pod Velocity (new pods/time) is a better p
 
 [source,text]
 ----
-I have 4 worker nodes, each currently running 195 pods. Our Pod Velocity
-(from Prometheus) is 14 new pods per week. Our maxPods per node is 250.
+My capacity-workshop cluster has 3 nodes, each currently running around
+65 pods. The Pod Velocity from my Module 2 Prometheus dashboard is
+approximately 14 new pods per week. The default maxPods per node is 250.
 
 How many weeks until I hit maxPods and need to add a worker node?
 Show your calculation step by step, then write a PromQL expression that
@@ -459,12 +531,12 @@ computes this runway automatically from live cluster data.
 [source,text]
 ----
 Current available capacity:
-  4 nodes × 250 maxPods = 1,000 total pod slots
-  Currently used: 4 × 195 = 780 pods
-  Available: 1,000 - 780 = 220 pod slots
+  3 nodes × 250 maxPods = 750 total pod slots
+  Currently used: 3 × 65 = 195 pods
+  Available: 750 - 195 = 555 pod slots
 
 At 14 new pods/week:
-  Weeks until full: 220 ÷ 14 = 15.7 weeks (~16 weeks)
+  Weeks until full: 555 ÷ 14 = 39.6 weeks (~40 weeks)
 
 PromQL for live runway (in weeks):
   (
@@ -472,6 +544,14 @@ PromQL for live runway (in weeks):
     - sum(kube_pod_info{node!=""})
   ) / <pod_velocity_per_week>
 ----
+
+[NOTE]
+.Using this prompt in your own environment
+====
+Substitute your own node count, current pod count, and Pod Velocity.
+If your Module 2 dashboard showed a different velocity, use that number —
+the step-by-step maths and the PromQL pattern are the same regardless of scale.
+====
 
 [IMPORTANT]
 ====
@@ -533,14 +613,16 @@ This is the Module 6 Black Friday Chaos Game scenario expressed as an advisory q
 
 [source,text]
 ----
-Based on the following capacity data from our OpenShift cluster, write a
-one-paragraph executive summary suitable for a quarterly budget request:
+Based on the following capacity data from our capacity-workshop OpenShift
+cluster, write a one-paragraph executive summary suitable for a quarterly
+budget request:
 
-- Current cluster: 4 worker nodes, 780 pods running
+- Current cluster: 3 combined control-plane/worker nodes on AWS (m7a.2xlarge)
+- Active workloads: capacity-workshop namespace with ~195 pods running
 - Pod Velocity: 14 new pods/week (growing 8% month-over-month)
-- Capacity runway: 16 weeks at current growth before hitting maxPods
-- Action required: provision 2 new worker nodes before week 12 (safety buffer)
-- Estimated cost: $3,200/month per additional m5.4xlarge node on AWS
+- Capacity runway: ~40 weeks at current growth before hitting maxPods
+- Action required: provision additional worker nodes before week 32 (safety buffer)
+- Estimated cost: $3,200/month per additional m7a.2xlarge node on AWS
 
 Write this for an audience of finance and business leadership, not engineers.
 Avoid technical jargon. Focus on cost, risk, and timeline.
@@ -553,9 +635,17 @@ In Module 7 you wrote a capacity pitch manually. Notice how Lightspeed's version
 
 * Does it use the right tone (business language, not technical)?
 * Does it communicate the *consequence* of not acting (the risk) rather than just the technical facts?
-* Does it frame infrastructure spend as a business enabler ("supports 10× traffic growth") rather than a cost centre?
+* Does it frame infrastructure spend as a business enabler ("supports student growth") rather than a cost centre?
 
-If you are not satisfied with the first output, try this follow-up: "Rewrite the summary to emphasise the risk of *not* provisioning the nodes. What business impact occurs at week 16 if we do nothing?"
+If you are not satisfied with the first output, try this follow-up: "Rewrite the summary to emphasise the risk of *not* provisioning the nodes. What business impact occurs at week 40 if we do nothing?"
+====
+
+[NOTE]
+.Using this prompt in your own environment
+====
+Replace the node type, pod count, velocity, and cost figure with your own cluster's numbers.
+The executive summary pattern — current state, trend, runway, action, cost — is reusable
+for any capacity planning communication regardless of environment.
 ====
 
 === Optional: Live cluster queries (cluster interaction required)
