@@ -96,11 +96,12 @@ QUERY_TESTS = [
         "lab": "8A",
         "name": "OOMKilled diagnosis",
         "prompt": (
-            "My pod keeps restarting with exit code 137. How do I diagnose an OOMKilled event "
-            "and use historical Prometheus data to set an accurate memory request?"
+            "I have a pod called besteffort-app in the capacity-workshop namespace. "
+            "It has no memory requests or limits set. How do I check whether it has "
+            "been OOMKilled, and what Prometheus metric should I use to determine an "
+            "accurate memory request for it?"
         ),
         "required_keywords": [
-            "137",
             "OOMKilled",
             "memory",
         ],
@@ -109,6 +110,7 @@ QUERY_TESTS = [
             "memory limit",
             "memory request",
             "lastState",
+            "137",
         ],
         "models": "primary",
     },
@@ -116,9 +118,12 @@ QUERY_TESTS = [
         "lab": "8A",
         "name": "QoS classes in plain language",
         "prompt": (
-            "Explain Kubernetes QoS classes — Guaranteed, Burstable, and BestEffort — in "
-            "plain language for a developer who has never read the Kubernetes docs. "
-            "Include which class gets evicted first when a node runs out of memory."
+            "I have three apps in my capacity-workshop namespace: "
+            "guaranteed-app: CPU and memory requests equal limits (200m CPU / 256Mi); "
+            "burstable-app: has a 100m CPU request but no limit; "
+            "besteffort-app: no resource requests or limits set at all. "
+            "Explain which QoS class each app is in, and what happens to each one "
+            "when the node runs low on memory. Which gets evicted first?"
         ),
         "required_keywords": [
             "Guaranteed",
@@ -130,6 +135,7 @@ QUERY_TESTS = [
             "evicted",
             "OOM",
             "memory pressure",
+            "besteffort-app",
         ],
         "models": "primary",
     },
@@ -137,8 +143,11 @@ QUERY_TESTS = [
         "lab": "8A",
         "name": "HPA with custom Prometheus metric",
         "prompt": (
-            "How do I configure a HorizontalPodAutoscaler on OpenShift to scale based on "
-            "a custom Prometheus metric from my application? Show me the YAML."
+            "My load-generator app in the capacity-workshop namespace has CPU requests "
+            "of 100m and limits of 500m. I set up a basic CPU HPA on it in a previous lab. "
+            "Show me how to change it to scale based on a custom Prometheus metric — "
+            "for example, the number of HTTP requests per second — instead of CPU. "
+            "Show me the YAML."
         ),
         "required_keywords": [
             "HorizontalPodAutoscaler",
@@ -156,8 +165,10 @@ QUERY_TESTS = [
         "lab": "8A",
         "name": "CPU throttling PromQL",
         "prompt": (
-            "Write a PromQL query that shows the CPU throttling rate for all pods in a "
-            "specific namespace. I want to see it as a percentage of throttled CPU time."
+            "Write a PromQL query that shows the CPU throttling rate as a percentage "
+            "for every pod in my capacity-workshop namespace. My cpu-throttle-demo pod "
+            "has a 200m CPU limit but runs a burn loop that tries to use far more. "
+            "I want to be able to see that throttling clearly in the query output."
         ),
         "required_keywords": [
             "container_cpu_cfs_throttled",
@@ -166,6 +177,7 @@ QUERY_TESTS = [
             "container_cpu_cfs_periods_total",
             "rate(",
             "namespace",
+            "capacity-workshop",
         ],
         "models": "primary",
     },
@@ -175,9 +187,11 @@ QUERY_TESTS = [
         "lab": "8B",
         "name": "Increasing maxPods safely",
         "prompt": (
-            "How do I safely increase the maximum number of pods per worker node beyond "
-            "the default 250 on OpenShift 4.21? What are the risks and what should I "
-            "monitor after making the change?"
+            "My OpenShift cluster has 3 nodes that are all running as combined "
+            "control-plane and worker nodes. I want to support more workloads in "
+            "the capacity-workshop namespace. How do I safely raise the maxPods "
+            "limit above the default 250 on OpenShift 4.21, and what are the specific "
+            "risks of doing this on nodes that run both control-plane and workload pods?"
         ),
         "required_keywords": [
             "KubeletConfig",
@@ -197,9 +211,10 @@ QUERY_TESTS = [
         "lab": "8B",
         "name": "etcd sizing and growth PromQL",
         "prompt": (
-            "What are the etcd database size limits on OpenShift, and how do I write a "
-            "PromQL query to track etcd database growth over time so I can forecast "
-            "when I need to defrag or add control plane capacity?"
+            "Write a PromQL query to check the current etcd database size on my "
+            "OpenShift cluster and estimate how quickly it is growing. My cluster "
+            "has 3 control-plane nodes. I want to know when I should defrag or "
+            "plan for additional control plane capacity."
         ),
         "required_keywords": [
             "etcd",
@@ -218,9 +233,11 @@ QUERY_TESTS = [
         "lab": "8B",
         "name": "Cluster architecture trade-offs",
         "prompt": (
-            "We run a single 500-node OpenShift cluster for all teams. At what point "
-            "should we consider splitting it into multiple smaller clusters, and what "
-            "are the operational trade-offs of federation versus consolidation?"
+            "I run a 3-node OpenShift training cluster where all nodes are combined "
+            "control-plane and workers, and I use a single capacity-workshop namespace "
+            "for all student workloads. As I scale to more students and cohorts, when "
+            "does it make more sense to keep growing this single cluster versus deploying "
+            "separate per-student clusters? What are the operational trade-offs?"
         ),
         "required_keywords": [
             "cluster",
@@ -240,11 +257,13 @@ QUERY_TESTS = [
         "lab": "8B",
         "name": "RHACM Grafana capacity PromQL trio",
         "prompt": (
-            "I'm building an RHACM Grafana capacity dashboard for a fleet of OpenShift "
-            "clusters. Write three PromQL queries I should include:\n"
+            "I connected my student cluster to an RHACM hub in Module 5 and I'm "
+            "building a Grafana capacity dashboard on the hub. Write three PromQL "
+            "queries for my capacity-workshop namespace:\n"
             "1. CPU request overcommit ratio per namespace across all clusters\n"
             "2. Memory utilisation versus allocated capacity per cluster\n"
-            "3. The number of pods per node to identify density hotspots"
+            "3. The number of pods per node to identify density hotspots\n"
+            "Use the cluster label so each cluster appears separately in the dashboard."
         ),
         "required_keywords": [
             "kube_pod_container_resource_requests",
