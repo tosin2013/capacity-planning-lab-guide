@@ -127,6 +127,7 @@ Track B Result: All PENDING (human tester), 1 BLOCKED (8D model comparison)
 | "How Lightspeed is Provisioned" section in module-08 | `content/modules/ROOT/pages/module-08.adoc` | ✅ |
 | Lightspeed deployed on student-01 cluster | `openshift-lightspeed` namespace | ✅ |
 | This test report | `module-08-test-report.md` | ✅ |
+| Module 8 Lightspeed API query validation script | `capacity-planning-lab-guide/scripts/validate-module-08-queries.py` | ✅ |
 
 ---
 
