@@ -32,9 +32,9 @@ ocp4_workload_lightspeed_model_primary: "granite-3-2-8b-instruct"
 ocp4_workload_lightspeed_model_comparison: ""
 
 # OLSConfig: enable cluster interaction (MCP introspection).
-# Technology Preview as of OCP 4.21. When true, Lightspeed reads live cluster
-# state via an MCP server and can answer projection questions against real metrics.
-ocp4_workload_lightspeed_introspection_enabled: false
+# Technology Preview as of OCP 4.21. When true, Lightspeed deploys an MCP server
+# that gives it read-only access to live cluster state and Prometheus metrics.
+ocp4_workload_lightspeed_introspection_enabled: true
 
 # How long to wait for the operator pod to be Running.
 # retries × delay = total wait time in seconds (42 × 10 = 7 minutes).

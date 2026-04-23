@@ -58,17 +58,25 @@ Unlike a general-purpose chatbot, Lightspeed has access to a curated Retrieval-A
 ====
 Lightspeed is a *conversational assistant*, not an autonomous agent. It cannot:
 
-* Run `oc` or `kubectl` commands on your behalf (unless cluster interaction is enabled — see below)
-* Access your cluster metrics directly without the optional MCP introspection feature
+* Run `oc` or `kubectl` commands on your behalf autonomously
 * Make changes to your cluster (it only advises)
 * Guarantee 100% accurate PromQL — always test queries in Prometheus before using in dashboards
 ====
 
-=== Cluster Interaction (Optional — Technology Preview)
+=== Cluster Interaction (Technology Preview)
 
-When the platform team enables *cluster interaction* (`introspectionEnabled: true` in OLSConfig), Lightspeed installs a Model Context Protocol (MCP) server that gives it read-only access to your cluster's live state. This allows Lightspeed to answer projection questions based on *your actual* metrics rather than hypothetical numbers.
+Lightspeed includes an optional *Model Context Protocol (MCP) server* that gives it read-only access to your cluster's live Kubernetes state. When enabled, the Lightspeed Operator injects an `openshift-mcp-server` sidecar container into the `lightspeed-app-server` pod and grants it read-only in-cluster API access.
 
-In this workshop, cluster interaction may be pre-enabled on your student cluster. If it is, questions like "which of my namespaces is most over-requested?" will return live data from your cluster.
+In this workshop, cluster interaction *is enabled* on your student cluster. The `ocp4_workload_lightspeed` role sets `introspectionEnabled: true` in OLSConfig, which causes the Operator to restart the app server with the MCP sidecar active.
+
+With the MCP active, Lightspeed can answer questions about your *actual* cluster resources — pods, nodes, deployments, events, configmaps, and routes — instead of giving generic answers based only on its training data. Questions like "which of my namespaces is most over-requested?" or "are any nodes under memory pressure?" will be answered using live Kubernetes API data.
+
+[NOTE]
+====
+The bundled `openshift-mcp-server` sidecar runs in `--read-only` mode. It provides Kubernetes resource access via the OCP API. It does not execute arbitrary PromQL queries directly — but Lightspeed may synthesise PromQL for you based on what it knows about your cluster topology, which you can then run yourself in the Observe → Metrics console.
+====
+
+Lab 8E exercises this capability directly.
 
 === How Lightspeed is Provisioned
 
@@ -113,10 +121,10 @@ The role performs these seven steps in order:
 |Creates a Kubernetes Secret (`litemaas-credentials`) containing the API token used by OLSConfig to authenticate with the LiteMaaS proxy.
 
 |6 OLSConfig
-|Applies the cluster-scoped `OLSConfig` CR pointing to the LiteMaaS endpoint with model `granite-3-2-8b-instruct`.
+|Applies the cluster-scoped `OLSConfig` CR with model `granite-3-2-8b-instruct` and `introspectionEnabled: true`. Setting introspection causes the Operator to inject an `openshift-mcp-server` sidecar into the app-server pod, giving Lightspeed read-only access to live cluster resources.
 
 |7 Wait for service
-|Polls the `lightspeed-app-server` pod (label: `app.kubernetes.io/name=lightspeed-service-api`) until it is Running.
+|Polls the `lightspeed-app-server` pod (label: `app.kubernetes.io/name=lightspeed-service-api`) until it is Running. When introspection is enabled the pod runs three containers: `lightspeed-service-api`, `lightspeed-to-dataverse-exporter`, and `openshift-mcp-server`.
 |===
 
 ==== The LiteMaaS Token Flow
@@ -651,6 +659,81 @@ Red Hat recommends Granite as the default because it is optimised for OCP-specif
 
 '''
 
+[#lab8e]
+== Lab 8E: Live Cluster Queries via MCP — Asking About Your Actual Cluster
+
+_10 minutes — requires cluster interaction (pre-enabled on your student cluster)_
+
+In Labs 8A–8D, Lightspeed answered every question using its RAG knowledge base — authoritative, but hypothetical. Now that your cluster has the MCP server active, Lightspeed can call the Kubernetes API to read *live* resource state before forming its answer.
+
+[NOTE]
+====
+This lab requires the `openshift-mcp-server` sidecar to be active inside the `lightspeed-app-server` pod. The provisioning role already set `introspectionEnabled: true`. To verify it is running:
+
+[source,bash]
+----
+oc get pod -n openshift-lightspeed \
+  -l app.kubernetes.io/name=lightspeed-service-api \
+  -o jsonpath='{range .items[0].spec.containers[*]}{.name}{"\n"}{end}'
+----
+
+You should see three lines: `lightspeed-service-api`, `lightspeed-to-dataverse-exporter`, and `openshift-mcp-server`.
+====
+
+=== Query 1: What workloads are running in the capacity-workshop namespace?
+
+Type the following into the Lightspeed chat panel:
+
+[source,text]
+----
+What deployments and pods are running in the capacity-workshop namespace?
+Are any of them in a non-Running state?
+----
+
+.What to look for
+[TIP]
+====
+With MCP enabled, Lightspeed should return the *actual deployment names* from your cluster rather than a generic answer. Compare this to the RAG-only responses in Labs 8A–8C — those returned general Kubernetes knowledge. This response should reference pods you actually deployed in earlier modules.
+
+If Lightspeed gives a generic answer about checking deployments, cluster interaction may still be initialising — wait 2 minutes and try again.
+====
+
+=== Query 2: Summarise this cluster's node capacity
+
+[source,text]
+----
+How many nodes does this cluster have? What is the total allocatable CPU and
+memory across all nodes? Are any nodes in a NotReady or degraded state?
+----
+
+.What to look for
+[TIP]
+====
+Lightspeed should call the Kubernetes API to list nodes and return real node names, actual CPU/memory values, and accurate Ready conditions. This is the baseline data you need before running any capacity projection — and getting it via chat is faster than running `oc describe nodes` and mentally summing the allocatable fields.
+====
+
+=== Query 3: Capacity headroom from live data
+
+[source,text]
+----
+Based on the nodes in this cluster, estimate how much additional workload capacity
+is available. What fraction of allocatable CPU and memory is currently requested?
+----
+
+.Reflection
+[NOTE]
+====
+Compare this response to what Lightspeed gave you in Lab 8C Query 2 (the runway calculation). In Lab 8C you supplied hypothetical numbers. Here, Lightspeed reads the actual cluster state. Notice:
+
+* Does it correctly distinguish between *requests* (what pods ask for at scheduling time) and *limits* (hard ceiling)?
+* Does it reference actual node names and resource totals from your cluster?
+* Is the headroom estimate consistent with what you would calculate manually from `oc describe nodes`?
+
+This is the core value proposition of MCP introspection: AI-assisted capacity operations against the real environment rather than a hypothetical scenario.
+====
+
+'''
+
 == Lab 8 Summary: AI-Assisted Capacity Operations
 
 You have now completed all four labs. Here is what you accomplished:
@@ -680,6 +763,11 @@ You have now completed all four labs. Here is what you accomplished:
 ✅ Compared Granite 3.2 8B and Qwen3 14B on the same capacity question +
 ✅ Evaluated model choice as a capacity and cost trade-off
 
+*Lab 8E — Live PromQL via MCP*
+
+✅ Asked Lightspeed questions that returned real cluster data via the MCP metrics toolset +
+✅ Verified that MCP introspection replaces hypothetical scenarios with actual numbers
+
 == Prompt Engineering Tips for Capacity Planning
 
 [TIP]
@@ -702,7 +790,7 @@ These patterns consistently improve Lightspeed responses on capacity topics:
 * *Lightspeed is a force multiplier, not a replacement* for understanding the capacity planning concepts from Modules 1–7 — the quality of your queries is directly proportional to the depth of your domain knowledge
 * *Granite 3.2 8B* is optimised for Red Hat product questions; *Qwen3 14B* is stronger for complex reasoning and tool-use
 * *PromQL assistance* is one of the highest-value Lightspeed use cases — it removes the barrier of memorising metric names and query syntax
-* *Cluster interaction (MCP introspection)* enables live capacity projection against real cluster data — a Technology Preview feature worth enabling in production
+* *Cluster interaction (MCP introspection)* is enabled on your cluster — Lightspeed's `openshift-mcp-server` sidecar gives it read-only Kubernetes API access, enabling capacity questions answered against real cluster state rather than hypothetical data
 * *Model selection is a capacity planning decision*: token cost, latency, and capability all factor in just like infrastructure sizing decisions
 
 == Workshop Complete
@@ -737,5 +825,5 @@ You now have a complete toolkit for running data-driven capacity operations:
 |12-month capacity roadmap and executive communication
 
 |8 — AI-Assisted Operations
-|Lightspeed as a debugging co-pilot, PromQL assistant, and forecasting advisor
+|Lightspeed as a debugging co-pilot, PromQL assistant, forecasting advisor, and live-cluster MCP query engine
 |===

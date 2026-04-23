@@ -145,7 +145,7 @@
           defaultProvider: litemaas
           defaultModel: "{{ ocp4_workload_lightspeed_model_primary }}"
           logLevel: INFO
-          introspectionEnabled: "{{ ocp4_workload_lightspeed_introspection_enabled }}"
+          introspectionEnabled: "{{ ocp4_workload_lightspeed_introspection_enabled | bool }}"
 
 # ── Step 6: Wait for Lightspeed service pod to be Running ────────────────────
 
