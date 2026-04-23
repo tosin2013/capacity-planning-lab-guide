@@ -177,14 +177,19 @@ Log in as `kubeadmin` with password `{student-cluster-password}` and click the l
 If the lightbulb icon is not visible, the Lightspeed Operator may still be starting up. Wait 2–3 minutes and refresh the page.
 ====
 
-=== The Model in This Workshop
+=== The Models in This Workshop
 
 The Lightspeed instance on your cluster has been configured to use two models via the RHDP LiteMaaS AI service:
 
-* *Primary (default)*: `openai/granite-3-2-8b-instruct` — IBM Granite 3.2 8B, a Red Hat and IBM enterprise model trained on Red Hat documentation
-* *Comparison* (Lab 8D): `openai/qwen3-14b` — Qwen 3 14B, a general-purpose model from Alibaba with strong reasoning
+* *Primary (default)*: `qwen3-14b` — Qwen 3 14B from Alibaba. Strong general reasoning and — critically — reliable MCP tool selection. This is the default because it correctly calls Kubernetes API tools by name when cluster interaction is enabled.
+* *Comparison* (Lab 8D): `granite-3-2-8b-instruct` — IBM Granite 3.2 8B, a Red Hat and IBM enterprise model trained on Red Hat documentation. Faster and optimised for OCP knowledge questions, but inconsistent with MCP tool calling in this Technology Preview release.
 
 Both models are available without any local GPU. They are served by the RHDP Model-as-a-Service (LiteMaaS) platform over an OpenAI-compatible API.
+
+[NOTE]
+====
+*Why Qwen 3 as the default?* During validation of this workshop, Granite 3.2 8B consistently misnamed MCP tools (generating `oc_get_pods` instead of `pods_list_in_namespace`), causing cluster queries to fail. Qwen 3 14B called all 14 available tools correctly on the first attempt. Lab 8D lets you observe this difference directly.
+====
 
 '''
 
@@ -572,7 +577,7 @@ remain before I need to add a worker node.
 
 [NOTE]
 ====
-Cluster interaction is a *Technology Preview* feature as of OpenShift Lightspeed 1.0. Answers from live cluster queries are more specific but also more dependent on model quality. The Qwen3-14B model (Lab 8D) typically performs better at multi-step tool-use tasks like these, because larger parameter counts improve tool selection accuracy.
+Cluster interaction is a *Technology Preview* feature as of OpenShift Lightspeed 1.0. Answers from live cluster queries are more specific but also more dependent on model quality. Your default model, `qwen3-14b`, was selected specifically because it reliably selects the correct MCP tool names. You will observe in Lab 8D how `granite-3-2-8b-instruct` compares on the same queries.
 ====
 
 '''
@@ -584,9 +589,7 @@ _20 minutes_
 
 [NOTE]
 ====
-This lab requires the `openai/qwen3-14b` model to be configured in your Lightspeed instance. If the model selector in the Lightspeed chat panel shows only one model, your environment is running granite only. Ask your instructor whether qwen3-14b was provisioned for your cluster.
-
-To switch models: click the model name (shown just above the chat input field) and select from the dropdown.
+Both models are pre-configured on your cluster. To switch: click the model name shown just above the chat input field and select from the dropdown. Your default is `qwen3-14b` — switch to `granite-3-2-8b-instruct` to run the comparison.
 ====
 
 === The comparison exercise
@@ -644,20 +647,20 @@ Tick each box (&#x2611;) or leave it empty (&#x2610;) based on what you observe.
 
 Consider the trade-offs:
 
-*Granite 3.2 8B*::
-Smaller model (8B parameters), faster response time, lower token cost per query, trained on Red Hat documentation. Best for day-to-day operational questions about OCP products.
+*Qwen3 14B (default in this workshop)*::
+Larger model (14B parameters), stronger general reasoning, and — verified in this workshop — reliable MCP tool selection. It correctly calls `pods_list_in_namespace`, `nodes_top`, and `namespaces_list` by name on the first attempt. Better for complex forecasting maths, multi-variable analysis, free-form writing like executive summaries, and any query that requires live cluster data.
 
-*Qwen3 14B*::
-Larger model (14B parameters), stronger general reasoning, better at multi-step tool-calling (cluster interaction feature). Better for complex forecasting maths, multi-variable analysis, and free-form writing like executive summaries.
+*Granite 3.2 8B*::
+Smaller model (8B parameters), faster response time, lower token cost per query, trained on Red Hat documentation. Strong for day-to-day OCP knowledge questions (how-to, debugging explanations, PromQL authoring). In this Technology Preview release, it inconsistently maps MCP tool names — useful for the 8A–8C labs but less reliable for cluster interaction.
 
 *For a production Lightspeed deployment*, the right choice depends on:
 
-* The primary use case (quick debugging vs. strategic analysis)
+* The primary use case (quick debugging vs. strategic analysis vs. live cluster queries)
 * Available LiteMaaS token budget (larger models cost more tokens per query)
 * Response latency requirements (14B is ~2× slower than 8B at same GPU throughput)
-* Whether cluster interaction (MCP) is needed — larger models are significantly more reliable at tool selection
+* Whether MCP cluster interaction is required — Qwen3 14B is significantly more reliable at tool selection
 
-Red Hat recommends Granite as the default because it is optimised for OCP-specific knowledge. But as the platform engineer responsible for this tool, *you should evaluate both models against your team's actual query patterns* — exactly as you just did in this lab.
+As the platform engineer responsible for this deployment, *you should evaluate both models against your team's actual query patterns* — exactly as you did in this lab.
 ====
 
 '''

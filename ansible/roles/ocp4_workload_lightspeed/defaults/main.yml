@@ -22,14 +22,14 @@ ocp4_workload_lightspeed_litemaas_api_token: ""
 
 # Primary model shown by default in the Lightspeed chat UI.
 # Model IDs are bare slugs — no "openai/" prefix.
-# Verified against live LiteMaaS endpoint 2026-04-22.
-ocp4_workload_lightspeed_model_primary: "granite-3-2-8b-instruct"
+# qwen3-14b is set as default because it reliably calls MCP tools by their correct names.
+# Granite 3.2 8B hallucinates tool names (e.g. oc_get_pods instead of pods_list_in_namespace).
+# Verified against live LiteMaaS endpoint 2026-04-23.
+ocp4_workload_lightspeed_model_primary: "qwen3-14b"
 
 # Optional comparison model for Lab 8D.
-# qwen3-14b is NOT in the standard RHDP lab-prod subscription package.
-# It requires a custom LiteMaaS model package — contact the MaaS team.
-# Leave empty ("") to skip; when set it must appear in the key's allowed_models list.
-ocp4_workload_lightspeed_model_comparison: ""
+# Both models must appear in the key's allowed_models list.
+ocp4_workload_lightspeed_model_comparison: "granite-3-2-8b-instruct"
 
 # OLSConfig: enable cluster interaction (MCP introspection).
 # Technology Preview as of OCP 4.21. When true, Lightspeed deploys an MCP server
