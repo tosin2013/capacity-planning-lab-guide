@@ -99,7 +99,7 @@ Each role receives `ACTION: provision` and applies its changes idempotently to t
 
 ==== What `ocp4_workload_lightspeed` Does
 
-The role performs these seven steps in order:
+The role performs these eight steps in order:
 
 [cols="1,3",options="header"]
 |===
@@ -123,7 +123,10 @@ The role performs these seven steps in order:
 |6 OLSConfig
 |Applies the cluster-scoped `OLSConfig` CR with model `granite-3-2-8b-instruct` and `introspectionEnabled: true`. Setting introspection causes the Operator to inject an `openshift-mcp-server` sidecar into the app-server pod, giving Lightspeed read-only access to live cluster resources.
 
-|7 Wait for service
+|7 MCP RBAC
+|When `introspectionEnabled: true`, creates a `ClusterRoleBinding` binding the `lightspeed-app-server` ServiceAccount to the `cluster-reader` ClusterRole. Without this binding the MCP tools can start but cannot list pods, nodes, or namespaces.
+
+|8 Wait for service
 |Polls the `lightspeed-app-server` pod (label: `app.kubernetes.io/name=lightspeed-service-api`) until it is Running. When introspection is enabled the pod runs three containers: `lightspeed-service-api`, `lightspeed-to-dataverse-exporter`, and `openshift-mcp-server`.
 |===
 
