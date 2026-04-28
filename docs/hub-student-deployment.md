@@ -49,38 +49,209 @@ Student Cluster N (m7a.2xlarge × 3)
 
 ## Prerequisites
 
+### 0. Bootstrap AgnosticD v2 (first-time setup)
+
+> Skip this section if you already have `~/agnosticd-v2/` cloned and `~/agnosticd-v2-virtualenv/` present.
+
+**Requirements:** Python 3.12+, Podman 4+, AWS CLI, `~/.aws/credentials` populated
+
+**Check Python version:**
+```bash
+python3 --version   # must be 3.12 or higher
+```
+
+If you get 3.9 on RHEL 9, install 3.12 first:
+```bash
+sudo dnf install -y python3.12
+sudo alternatives --set python3 /usr/bin/python3.12
+```
+
+**Clone the workshop branch and run setup:**
+```bash
+git clone --branch workload/capacity-planning-workshop \
+  https://github.com/tosin2013/agnosticd-v2.git ~/agnosticd-v2
+cd ~/agnosticd-v2
+./bin/agd setup
+```
+
+`agd setup` creates:
+- `~/agnosticd-v2-virtualenv/` — Ansible + ansible-navigator virtualenv
+- `~/agnosticd-v2-vars/` — configuration file directory (not a git repo)
+- `~/agnosticd-v2-secrets/` — secrets file directory (never committed to git)
+
+---
+
+**Understanding the `--account` parameter**
+
+Every `agd provision` command takes `--account <name>`. This resolves to `~/agnosticd-v2-secrets/secrets-<name>.yml`, which holds the AWS credentials and `base_domain` for your sandbox.
+
+Find your Route53 hosted zone (this becomes `base_domain`):
+```bash
+aws route53 list-hosted-zones --query 'HostedZones[*].Name' --output text
+# Example output: sandbox2784.opentlc.com.   (strip the trailing dot)
+```
+
+Create the account secrets file — **do not commit this file to git**:
+```bash
+cat > ~/agnosticd-v2-secrets/secrets-sandbox2784.yml << 'EOF'
+---
+aws_access_key_id: <Your AWS Access Key ID>
+aws_secret_access_key: <Your AWS Secret Access Key>
+base_domain: sandbox2784.opentlc.com
+agnosticd_aws_capacity_reservation_enable: false
+EOF
+```
+
+Also create `~/agnosticd-v2-secrets/secrets.yml` with your OpenShift pull secret:
+```bash
+cat > ~/agnosticd-v2-secrets/secrets.yml << 'EOF'
+---
+ocp4_pull_secret: '<paste the full pull-secret JSON here, single-quoted>'
+install_satellite_repositories: false
+install_rhn_repositories: false
+EOF
+```
+
+---
+
 ### 1. AWS Credentials and Quota
 
 Ensure your AWS sandbox has sufficient quota in `us-east-2`:
 
-| Resource | Default | Required (8 students) |
-|---|---|---|
-| Elastic IPs | 5 | 15 (1 per cluster) |
-| VPCs | 5 | 15 |
-| NAT Gateways | 5 per AZ | 15 per AZ |
-| vCPUs (M7a) | 1,152 | ~220 (hub 24 + 8×24) |
+| Resource | Default | Required (hub + 1 student) | Required (8 students) |
+|---|---|---|---|
+| Elastic IPs | 5 | 2 | 15 |
+| VPCs | 5 | 2 | 15 |
+| NAT Gateways | 5 per AZ | 2 | 15 per AZ |
+| vCPUs (M7a) | 1,152 | ~36 | ~220 |
 
-Open a quota increase request for EIPs, VPCs, and NAT GWs to 15 before starting.
+For 8 students, open a quota increase request for EIPs, VPCs, and NAT GWs to 15 before starting. A single hub + 1 student test falls within default quotas.
 
 ### 2. OpenShift Pull Secret
 
-```bash
-# Place your pull secret from https://console.redhat.com/openshift/install/pull-secret
-cp ~/pull-secret.json ~/agnosticd-v2-secrets/pull-secret.json
+Download your pull secret from https://console.redhat.com/openshift/install/pull-secret.
+
+Set `ocp4_pull_secret` in `~/agnosticd-v2-secrets/secrets.yml` (created above in Step 0). The value must be the raw JSON content, single-quoted on one line:
+
+```yaml
+ocp4_pull_secret: '{"auths": {"cloud.openshift.com": {...}, ...}}'
 ```
 
-Verify it is valid JSON:
+Verify it is valid JSON before provisioning:
 ```bash
-python3 -m json.tool ~/agnosticd-v2-secrets/pull-secret.json > /dev/null && echo "Valid"
+python3 -c "import json,sys; json.load(open('/dev/stdin'))" \
+  <<< "$(grep ocp4_pull_secret ~/agnosticd-v2-secrets/secrets.yml | cut -d"'" -f2)" \
+  && echo "Pull secret is valid JSON"
 ```
 
-### 3. AgnosticD vars and secrets
+### 3. AgnosticD vars files
 
-Files required:
-- `~/agnosticd-v2-vars/hub-aws.yml` — hub cluster config
-- `~/agnosticd-v2-vars/student-compact-aws.yml` — student cluster template (change `guid` per student)
-- `~/agnosticd-v2-secrets/secrets.yml` — pull secret lookup
-- `~/agnosticd-v2-secrets/secrets-sandbox5388.yml` — AWS credentials + `base_domain`
+Create the following files in `~/agnosticd-v2-vars/`. These files live **outside** the git repository and are never committed.
+
+**`~/agnosticd-v2-vars/hub-aws.yml`** — hub cluster (RHACM + Observability + Showroom):
+
+```yaml
+---
+guid: hub-capacity
+tag: main
+cloud_provider: aws
+config: openshift-cluster
+
+requirements_content:
+  collections:
+  - name: https://github.com/agnosticd/core_workloads.git
+    type: git
+    version: "{{ tag }}"
+
+aws_region: us-east-2
+cluster_name: hub
+host_ocp4_installer_version: "4.19"
+host_ocp4_installer_root_url: https://mirror.openshift.com/pub/openshift-v4/clients
+host_ocp4_installer_set_user_data_kubeadmin_password: true
+openshift_cluster_admin_service_account_enable: true
+worker_instance_count: 0   # compact 3-node: control-plane nodes also run workloads
+
+# Replace with your own SSH public key
+host_ssh_authorized_keys:
+- key: "ssh-ed25519 AAAA... user@host"
+
+install_satellite_repositories: false
+install_rhn_repositories: false
+
+workloads:
+- agnosticd.core_workloads.ocp4_workload_cert_manager
+- agnosticd.core_workloads.ocp4_workload_openshift_gitops
+- ocp4_workload_capacity_planning_workshop
+
+ocp4_workload_cert_manager_channel: stable-v1.15
+ocp4_workload_cert_manager_aws_region: "{{ aws_region }}"
+ocp4_workload_cert_manager_aws_access_key_id: "{{ hostvars.localhost.route53user_access_key }}"
+ocp4_workload_cert_manager_aws_secret_access_key: "{{ hostvars.localhost.route53user_secret_access_key }}"
+ocp4_workload_cert_manager_use_catalog_snapshot: false
+ocp4_workload_cert_manager_install_ingress_certificates: true
+ocp4_workload_cert_manager_install_api_certificates: false
+
+ocp4_workload_capacity_planning_workshop_hub_mode: true
+ocp4_workload_capacity_planning_workshop_deploy_rhacm: true
+ocp4_workload_capacity_planning_workshop_deploy_monitoring: false
+ocp4_workload_capacity_planning_workshop_deploy_sample_apps: false
+ocp4_workload_capacity_planning_workshop_deploy_showroom: true
+ocp4_workload_capacity_planning_workshop_rhacm_channel: release-2.16
+ocp4_workload_capacity_planning_workshop_rhacm_storage_class: gp3-csi
+ocp4_workload_capacity_planning_workshop_rhacm_thanos_bucket: "rhacm-metrics-hub-capacity"
+```
+
+**`~/agnosticd-v2-vars/student-compact-aws.yml`** — student cluster (sample apps + Prometheus):
+
+```yaml
+---
+guid: student-01   # increment per student: student-01, student-02, ...
+tag: main
+cloud_provider: aws
+config: openshift-cluster
+
+requirements_content:
+  collections:
+  - name: https://github.com/agnosticd/core_workloads.git
+    type: git
+    version: "{{ tag }}"
+
+aws_region: us-east-2
+cluster_name: student
+host_ocp4_installer_version: "4.19"
+host_ocp4_installer_root_url: https://mirror.openshift.com/pub/openshift-v4/clients
+host_ocp4_installer_set_user_data_kubeadmin_password: true
+openshift_cluster_admin_service_account_enable: true
+worker_instance_count: 0
+control_plane_instance_type: m7a.2xlarge   # 24 vCPU / 96 GB RAM
+
+host_ssh_authorized_keys:
+- key: "ssh-ed25519 AAAA... user@host"
+
+install_satellite_repositories: false
+install_rhn_repositories: false
+
+workloads:
+- agnosticd.core_workloads.ocp4_workload_cert_manager
+- agnosticd.core_workloads.ocp4_workload_openshift_gitops
+- ocp4_workload_capacity_planning_workshop
+
+ocp4_workload_cert_manager_channel: stable-v1.15
+ocp4_workload_cert_manager_aws_region: "{{ aws_region }}"
+ocp4_workload_cert_manager_aws_access_key_id: "{{ hostvars.localhost.route53user_access_key }}"
+ocp4_workload_cert_manager_aws_secret_access_key: "{{ hostvars.localhost.route53user_secret_access_key }}"
+ocp4_workload_cert_manager_use_catalog_snapshot: false
+ocp4_workload_cert_manager_install_ingress_certificates: true
+ocp4_workload_cert_manager_install_api_certificates: false
+
+ocp4_workload_capacity_planning_workshop_hub_mode: false
+ocp4_workload_capacity_planning_workshop_deploy_rhacm: false
+ocp4_workload_capacity_planning_workshop_deploy_monitoring: true
+ocp4_workload_capacity_planning_workshop_deploy_sample_apps: true
+ocp4_workload_capacity_planning_workshop_deploy_showroom: false
+# After hub provisions, set this to the RHACM console URL (pre-populates Module 5):
+# ocp4_workload_capacity_planning_workshop_hub_rhacm_url: "https://multicloud-console.apps.hub.hub-capacity.<base_domain>"
+```
 
 ---
 
