@@ -235,6 +235,7 @@ workloads:
 - agnosticd.core_workloads.ocp4_workload_cert_manager
 - agnosticd.core_workloads.ocp4_workload_openshift_gitops
 - ocp4_workload_capacity_planning_workshop
+- ocp4_workload_lightspeed
 
 ocp4_workload_cert_manager_channel: stable-v1.15
 ocp4_workload_cert_manager_aws_region: "{{ aws_region }}"
@@ -251,6 +252,11 @@ ocp4_workload_capacity_planning_workshop_deploy_sample_apps: true
 ocp4_workload_capacity_planning_workshop_deploy_showroom: false
 # After hub provisions, set this to the RHACM console URL (pre-populates Module 5):
 # ocp4_workload_capacity_planning_workshop_hub_rhacm_url: "https://multicloud-console.apps.hub.hub-capacity.<base_domain>"
+
+ocp4_workload_lightspeed_model_primary: "qwen3-14b"
+ocp4_workload_lightspeed_model_comparison: "granite-3-2-8b-instruct"
+ocp4_workload_lightspeed_introspection_enabled: true
+# Set ocp4_workload_lightspeed_litemaas_api_token in your secrets file — never here.
 ```
 
 ---
@@ -298,9 +304,9 @@ Look for `hub_rhacm_console` — e.g.:
 hub_rhacm_console: https://multicloud-console.apps.hub.sandbox5388.opentlc.com
 ```
 
-### Step 3 — Update student vars with hub RHACM URL (optional)
+### Step 3 — Update student vars with hub RHACM URL and LiteMaaS token
 
-The hub RHACM URL can be injected into `student-compact-aws.yml` so Module 5 instructions are pre-populated:
+**Hub RHACM URL (optional)** — injected into `student-compact-aws.yml` so Module 5 instructions are pre-populated:
 
 ```yaml
 # In student-compact-aws.yml, uncomment and set:
@@ -308,6 +314,15 @@ ocp4_workload_capacity_planning_workshop_hub_rhacm_url: "https://multicloud-cons
 ```
 
 > **Note**: This is informational only — the student cluster does NOT auto-register. Students perform the cluster import during Module 5 as a hands-on exercise.
+
+**LiteMaaS API token (required for Module 8 — OpenShift Lightspeed)** — the `ocp4_workload_lightspeed` workload is included in the student cluster provisioning and requires a LiteMaaS virtual key. Add this to `~/agnosticd-v2-secrets/secrets.yml` or a per-student secrets file — **never put tokens in the vars file**:
+
+```yaml
+# In ~/agnosticd-v2-secrets/secrets.yml (applies to all students), or per-student:
+ocp4_workload_lightspeed_litemaas_api_token: "sk-..."
+```
+
+Get a virtual key from the [RHDP LiteMaaS portal](https://litellm-prod.apps.maas.redhatworkshops.io) or request one via the `rhpds.litellm_virtual_keys` AgnosticD action. The `lab-prod` package includes Granite 3.2 8B and Qwen3-14B (both required for Lab 8D).
 
 ### Step 4 — Provision student clusters (in parallel)
 
