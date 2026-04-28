@@ -169,7 +169,8 @@ host_ocp4_installer_version: "4.19"
 host_ocp4_installer_root_url: https://mirror.openshift.com/pub/openshift-v4/clients
 host_ocp4_installer_set_user_data_kubeadmin_password: true
 openshift_cluster_admin_service_account_enable: true
-worker_instance_count: 0   # compact 3-node: control-plane nodes also run workloads
+worker_instance_count: 0
+control_plane_instance_type: m7a.2xlarge   # required: RHACM+MCE need 24 vCPU total; m7a.xlarge (12 vCPU) is insufficient
 
 # Replace with your own SSH public key
 host_ssh_authorized_keys:
