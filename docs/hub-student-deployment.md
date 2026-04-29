@@ -244,6 +244,53 @@ level=error msg=failed to create cluster: infrastructure was not ready within 15
 
 ---
 
+### besteffort-app and critical-app FailedCreate (ResourceQuota Conflict)
+
+**Symptom**: After provision, `besteffort-app` and `critical-app` pods never start. Describe events show:
+
+```
+Warning  FailedCreate  pods "besteffort-app-..." is forbidden: failed quota: capacity-workshop-quota:
+  must specify limits.cpu for: app; limits.memory for: app; requests.cpu for: app; requests.memory for: app
+
+Warning  FailedCreate  pods "critical-app-..." is forbidden: failed quota: capacity-workshop-quota:
+  must specify limits.cpu for: create-index; limits.memory for: create-index; ...
+```
+
+**Cause**: The `capacity-workshop-quota` ResourceQuota requires every pod in the namespace to declare `requests.cpu`, `requests.memory`, `limits.cpu`, and `limits.memory`. The upstream Helm chart defines `besteffort-app` without any `resources:` block (intentional for the QoS demo) and the `critical-app` `create-index` init container also has no resources block. Both pods are rejected at admission.
+
+**Upstream fix**: [PR #2 — fix: add resources to besteffort-app and critical-app init container](https://github.com/tosin2013/openshift-capacity-planning-workshop/pull/2). Once merged, ArgoCD will apply the corrected chart and both apps will deploy.
+
+**Temporary workaround** (live clusters before the PR merges):
+
+1. Suspend ArgoCD auto-sync so the quota is not immediately re-created:
+
+```bash
+oc patch application capacity-planning-workshop-sample-apps \
+  -n openshift-gitops \
+  --type=merge \
+  -p '{"spec":{"syncPolicy":{"automated":null}}}'
+```
+
+2. Delete the ResourceQuota:
+
+```bash
+oc delete resourcequota capacity-workshop-quota -n capacity-workshop
+```
+
+3. Force a rollout restart of the affected Deployments:
+
+```bash
+oc rollout restart deployment/besteffort-app deployment/critical-app -n capacity-workshop
+```
+
+Both pods will come up within ~30 seconds. With the quota absent, `besteffort-app` shows `BestEffort` QoS — which is pedagogically accurate.
+
+**After the PR merges**: Re-enable ArgoCD auto-sync and trigger a manual sync. The chart will apply minimal resource specs to `besteffort-app` (making it `Burstable`, consistent with the module-03 narrative about quota-enforced QoS) and to the `create-index` init container.
+
+> **Note for module-03**: The lab guide already explains that `besteffort-app` will show as `Burstable` when the namespace quota is active. The scratch-namespace workaround (`oc new-project scratch-qos-demo`) documented in module-03 remains valid for students who want to observe true `BestEffort` behavior regardless of the workaround state.
+
+---
+
 ## Lifecycle Operations
 
 All clusters support stop/start/status for RHDP cost management:
@@ -291,3 +338,4 @@ After both clusters provision, verify:
 | Showroom shows placeholder `{attributes}` | `agnosticd_user_info` keys missing | Check `provision-user-data.yaml` has all required keys |
 | Console/API unreachable after `agd start` | DNS propagation delay | Wait 10–15 min for EIP re-association |
 | ArgoCD Application shows `OutOfSync` | Git repo unreachable from cluster | Check egress and DNS from student cluster |
+| `besteffort-app` / `critical-app` never start (`FailedCreate`) | ResourceQuota blocks pods without resource specs | Apply workaround in "besteffort-app and critical-app FailedCreate" section above; upstream fix in PR #2 |
