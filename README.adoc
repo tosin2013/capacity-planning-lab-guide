@@ -22,7 +22,7 @@ This workshop teaches strategic capacity planning through 7 comprehensive module
 
 **Public Documentation**: https://tosin2013.github.io/capacity-planning-lab-guide
 
-**For Instructors**: Deploy via AgnosticD workload `ocp4_workload_capacity_planning_workshop` on Red Hat Demo Platform (RHDP) to create a complete workshop environment with Showroom lab guide and pre-deployed sample applications.
+**For Instructors**: Deploy via AgnosticD workload `ocp4_workload_capacity_planning_workshop` on Red Hat Demo Platform (RHDP) to create a complete workshop environment with Showroom lab guide and pre-deployed sample applications. See link:docs/hub-student-deployment.md[Hub-Student Deployment Guide] for AWS quota requirements, step-by-step provisioning instructions, and known issue workarounds.
 
 == Workshop Features
 
@@ -110,7 +110,13 @@ Deploy the complete workshop with:
 - Showroom lab guide
 - Pre-configured monitoring and dashboards
 
-See https://github.com/tosin2013/agnosticd-v2[AgnosticD workload] for deployment instructions.
+See link:docs/hub-student-deployment.md[Hub-Student Deployment Guide] for the full operator runbook, including:
+
+* AWS quota requirements (EIPs, VPCs, NAT Gateways) — **request increases before provisioning**
+* Step-by-step `agd provision` commands for hub and student clusters
+* Known behaviors: sample app cold-start timeout, `ocp4_workload_lightspeed` role availability
+* Lifecycle operations (`agd stop/start/status`) for RHDP cost management
+* Post-provision validation checklist
 
 === Option 2: GitHub Pages - Documentation Only
 

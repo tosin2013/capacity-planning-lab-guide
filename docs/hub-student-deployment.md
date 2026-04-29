@@ -1,430 +1,293 @@
 # Hub-Student Deployment Guide
 
-## Overview
-
-The Strategic Capacity Planning & Forecasting workshop uses a **hub-student topology**:
-
-- **Hub cluster** — runs RHACM, MultiClusterObservability (Thanos → S3, Grafana), Showroom (lab guide), cert-manager, and OpenShift GitOps.
-- **Student clusters** — each student gets a dedicated compact 3-node OpenShift cluster running sample apps, Prometheus monitoring, and simulation tools. Students register their cluster into the hub's RHACM during **Module 5 ("The God's-Eye Dashboard")** as a hands-on lab exercise.
+Operator reference for deploying the Strategic Capacity Planning workshop on Red Hat Demo Platform (RHDP) using AgnosticD v2 in a hub-student topology.
 
 ---
 
 ## Architecture
 
 ```
-Hub Cluster (m7a.2xlarge × 3)
-├── cert-manager + Let's Encrypt (Route53 DNS-01)
-├── OpenShift GitOps (ArgoCD)
-├── RHACM + MultiClusterHub
-├── RHACM Observability
-│   ├── Thanos → S3 (fleet-wide metrics)
-│   └── Grafana (God's-Eye Dashboard)
-└── Showroom (lab guide + terminal → student cluster API)
-
-Student Cluster N (m7a.2xlarge × 3)
-├── cert-manager + Let's Encrypt (Route53 DNS-01)
-├── OpenShift GitOps (ArgoCD)
-└── Workshop workloads (hub_mode: false)
-    ├── Sample Apps (QoS demos, HPA, load-gen, noisy-neighbor)
-    ├── Monitoring config (Prometheus rules, PromQL dashboards)
-    └── Simulation toolkit
-                  ↓  Module 5 lab exercise
-         Registers as RHACM managed cluster on hub
+┌─────────────────────────────────────┐
+│  Hub cluster (hub-capacity)         │
+│  ├── RHACM + Observability          │
+│  ├── Grafana (read-only + dev)      │
+│  └── Showroom lab guide             │
+└─────────────┬───────────────────────┘
+              │  RHACM import (Module 5)
+┌─────────────▼───────────────────────┐
+│  Student cluster (student-NN)       │
+│  ├── sample apps (capacity-workshop)│
+│  ├── cert-manager (ingress TLS)     │
+│  └── OpenShift GitOps (ArgoCD)      │
+└─────────────────────────────────────┘
 ```
 
-**Workload distribution:**
+One hub cluster hosts Showroom and RHACM. Each student gets a dedicated compact 3-node OCP cluster with sample workloads pre-deployed via ArgoCD.
 
-| Workload | Hub | Student |
-|---|---|---|
-| cert-manager + Let's Encrypt | YES | YES |
-| OpenShift GitOps | YES | YES |
-| RHACM + MultiClusterHub | **YES** | NO |
-| RHACM Observability (Thanos/Grafana) | **YES** | NO |
-| Sample apps (QoS, HPA, load-gen) | NO | YES |
-| Monitoring config (Prometheus rules) | NO | YES |
-| Simulation toolkit | NO | YES |
-| Showroom lab guide | YES | NO |
+---
+
+## AWS Quota Requirements
+
+> **Request quota increases before provisioning any cluster.** A 3-node compact OCP cluster deploys one NAT gateway per Availability Zone (3 AZs in us-east-2), consuming **4 Elastic IPs per cluster** (3 NAT gateways + 1 bastion). The default quota of 5 EIPs is exhausted by the hub cluster alone.
+
+| Resource | Default | hub + 1 student | hub + 8 students | Per-cluster breakdown |
+|---|---|---|---|---|
+| Elastic IPs | 5 | **8** | **36** | 3 NAT GWs + 1 bastion |
+| VPCs | 5 | **2** | **9** | 1 per cluster |
+| NAT Gateways | 5 | **6** | **27** | 3 per cluster (one per AZ) |
+| vCPUs (m7a) | varies | **24** | **168** | 8 × m7a.2xlarge per cluster |
+
+Submit quota increases via the [AWS Service Quotas console](https://us-east-2.console.aws.amazon.com/servicequotas/) **before running `agd provision`**.
 
 ---
 
 ## Prerequisites
 
-### 0. Bootstrap AgnosticD v2 (first-time setup)
-
-> Skip this section if you already have `~/agnosticd-v2/` cloned and `~/agnosticd-v2-virtualenv/` present.
-
-**Requirements:** Python 3.12+, Podman 4+, AWS CLI, `~/.aws/credentials` populated
-
-**Check Python version:**
-```bash
-python3 --version   # must be 3.12 or higher
-```
-
-If you get 3.9 on RHEL 9, install 3.12 first:
-```bash
-sudo dnf install -y python3.12
-sudo alternatives --set python3 /usr/bin/python3.12
-```
-
-**Clone the workshop branch and run setup:**
-```bash
-git clone --branch workload/capacity-planning-workshop \
-  https://github.com/tosin2013/agnosticd-v2.git ~/agnosticd-v2
-cd ~/agnosticd-v2
-./bin/agd setup
-```
-
-`agd setup` creates:
-- `~/agnosticd-v2-virtualenv/` — Ansible + ansible-navigator virtualenv
-- `~/agnosticd-v2-vars/` — configuration file directory (not a git repo)
-- `~/agnosticd-v2-secrets/` — secrets file directory (never committed to git)
+| Component | Required version | Check |
+|-----------|-----------------|-------|
+| Python | 3.12+ | `python3 --version` |
+| Podman | 4.0+ | `podman --version` |
+| AgnosticD v2 | cloned to `~/agnosticd-v2` | `ls ~/agnosticd-v2/bin/agd` |
+| Virtualenv | activated at `~/agnosticd-v2-virtualenv` | `ls ~/agnosticd-v2-virtualenv/bin` |
+| AWS credentials | valid access/secret keys | `~/.aws/credentials` |
 
 ---
 
-**Understanding the `--account` parameter**
+## File Layout
 
-Every `agd provision` command takes `--account <name>`. This resolves to `~/agnosticd-v2-secrets/secrets-<name>.yml`, which holds the AWS credentials and `base_domain` for your sandbox.
-
-Find your Route53 hosted zone (this becomes `base_domain`):
-```bash
-aws route53 list-hosted-zones --query 'HostedZones[*].Name' --output text
-# Example output: sandbox2784.opentlc.com.   (strip the trailing dot)
 ```
+~/agnosticd-v2-vars/
+├── hub-aws.yml          # Hub cluster configuration
+└── student-01.yml       # Per-student configuration (copy for each student)
 
-Create the account secrets file — **do not commit this file to git**:
-```bash
-cat > ~/agnosticd-v2-secrets/secrets-sandbox2784.yml << 'EOF'
----
-aws_access_key_id: <Your AWS Access Key ID>
-aws_secret_access_key: <Your AWS Secret Access Key>
-base_domain: sandbox2784.opentlc.com
-agnosticd_aws_capacity_reservation_enable: false
-EOF
-```
+~/agnosticd-v2-secrets/
+└── secrets-sandbox<N>.yml   # AWS credentials + base_domain
 
-Also create `~/agnosticd-v2-secrets/secrets.yml` with your OpenShift pull secret:
-```bash
-cat > ~/agnosticd-v2-secrets/secrets.yml << 'EOF'
----
-ocp4_pull_secret: '<paste the full pull-secret JSON here, single-quoted>'
-install_satellite_repositories: false
-install_rhn_repositories: false
-EOF
+~/agnosticd-v2-output/
+├── hub-capacity/        # Hub provision output
+│   ├── provision-user-data.yaml   # Hub URLs + credentials
+│   └── provision-user-info.yaml   # Human-readable messages
+└── student-01/          # Student provision output
+    ├── provision-user-data.yaml
+    └── provision-user-info.yaml
 ```
 
 ---
 
-### 1. AWS Credentials and Quota
+## Step 1 — Secrets File
 
-Ensure your AWS sandbox has sufficient quota in `us-east-2`:
-
-| Resource | Default | Required (hub + 1 student) | Required (8 students) |
-|---|---|---|---|
-| Elastic IPs | 5 | 2 | 15 |
-| VPCs | 5 | 2 | 15 |
-| NAT Gateways | 5 per AZ | 2 | 15 per AZ |
-| vCPUs (M7a) | 1,152 | ~36 | ~220 |
-
-For 8 students, open a quota increase request for EIPs, VPCs, and NAT GWs to 15 before starting. A single hub + 1 student test falls within default quotas.
-
-### 2. OpenShift Pull Secret
-
-Download your pull secret from https://console.redhat.com/openshift/install/pull-secret.
-
-Set `ocp4_pull_secret` in `~/agnosticd-v2-secrets/secrets.yml` (created above in Step 0). The value must be the raw JSON content, single-quoted on one line:
+Create `~/agnosticd-v2-secrets/secrets-<account>.yml`:
 
 ```yaml
-ocp4_pull_secret: '{"auths": {"cloud.openshift.com": {...}, ...}}'
-```
+# AWS credentials — copy from ~/.aws/credentials [default] stanza
+aws_access_key_id: "AKIA..."
+aws_secret_access_key: "..."
 
-Verify it is valid JSON before provisioning:
-```bash
-python3 -c "import json,sys; json.load(open('/dev/stdin'))" \
-  <<< "$(grep ocp4_pull_secret ~/agnosticd-v2-secrets/secrets.yml | cut -d"'" -f2)" \
-  && echo "Pull secret is valid JSON"
-```
-
-### 3. AgnosticD vars files
-
-Create the following files in `~/agnosticd-v2-vars/`. These files live **outside** the git repository and are never committed.
-
-**`~/agnosticd-v2-vars/hub-aws.yml`** — hub cluster (RHACM + Observability + Showroom):
-
-```yaml
----
-guid: hub-capacity
-tag: main
-cloud_provider: aws
-config: openshift-cluster
-
-requirements_content:
-  collections:
-  - name: https://github.com/agnosticd/core_workloads.git
-    type: git
-    version: "{{ tag }}"
-
-aws_region: us-east-2
-cluster_name: hub
-host_ocp4_installer_version: "4.19"
-host_ocp4_installer_root_url: https://mirror.openshift.com/pub/openshift-v4/clients
-host_ocp4_installer_set_user_data_kubeadmin_password: true
-openshift_cluster_admin_service_account_enable: true
-worker_instance_count: 0
-control_plane_instance_type: m7a.2xlarge   # required: RHACM+MCE need 24 vCPU total; m7a.xlarge (12 vCPU) is insufficient
-
-# Replace with your own SSH public key
-host_ssh_authorized_keys:
-- key: "ssh-ed25519 AAAA... user@host"
-
-install_satellite_repositories: false
-install_rhn_repositories: false
-
-workloads:
-- agnosticd.core_workloads.ocp4_workload_cert_manager
-- agnosticd.core_workloads.ocp4_workload_openshift_gitops
-- ocp4_workload_capacity_planning_workshop
-
-ocp4_workload_cert_manager_channel: stable-v1.15
-ocp4_workload_cert_manager_aws_region: "{{ aws_region }}"
-ocp4_workload_cert_manager_aws_access_key_id: "{{ hostvars.localhost.route53user_access_key }}"
-ocp4_workload_cert_manager_aws_secret_access_key: "{{ hostvars.localhost.route53user_secret_access_key }}"
-ocp4_workload_cert_manager_use_catalog_snapshot: false
-ocp4_workload_cert_manager_install_ingress_certificates: true
-ocp4_workload_cert_manager_install_api_certificates: false
-
-ocp4_workload_capacity_planning_workshop_hub_mode: true
-ocp4_workload_capacity_planning_workshop_deploy_rhacm: true
-ocp4_workload_capacity_planning_workshop_deploy_monitoring: false
-ocp4_workload_capacity_planning_workshop_deploy_sample_apps: false
-ocp4_workload_capacity_planning_workshop_deploy_showroom: true
-ocp4_workload_capacity_planning_workshop_rhacm_channel: release-2.16
-ocp4_workload_capacity_planning_workshop_rhacm_storage_class: gp3-csi
-ocp4_workload_capacity_planning_workshop_rhacm_thanos_bucket: "rhacm-metrics-hub-capacity"
-```
-
-**`~/agnosticd-v2-vars/student-compact-aws.yml`** — student cluster (sample apps + Prometheus):
-
-```yaml
----
-guid: student-01   # increment per student: student-01, student-02, ...
-tag: main
-cloud_provider: aws
-config: openshift-cluster
-
-requirements_content:
-  collections:
-  - name: https://github.com/agnosticd/core_workloads.git
-    type: git
-    version: "{{ tag }}"
-
-aws_region: us-east-2
-cluster_name: student
-host_ocp4_installer_version: "4.19"
-host_ocp4_installer_root_url: https://mirror.openshift.com/pub/openshift-v4/clients
-host_ocp4_installer_set_user_data_kubeadmin_password: true
-openshift_cluster_admin_service_account_enable: true
-worker_instance_count: 0
-control_plane_instance_type: m7a.2xlarge   # 24 vCPU / 96 GB RAM
-
-host_ssh_authorized_keys:
-- key: "ssh-ed25519 AAAA... user@host"
-
-install_satellite_repositories: false
-install_rhn_repositories: false
-
-workloads:
-- agnosticd.core_workloads.ocp4_workload_cert_manager
-- agnosticd.core_workloads.ocp4_workload_openshift_gitops
-- ocp4_workload_capacity_planning_workshop
-- ocp4_workload_lightspeed
-
-ocp4_workload_cert_manager_channel: stable-v1.15
-ocp4_workload_cert_manager_aws_region: "{{ aws_region }}"
-ocp4_workload_cert_manager_aws_access_key_id: "{{ hostvars.localhost.route53user_access_key }}"
-ocp4_workload_cert_manager_aws_secret_access_key: "{{ hostvars.localhost.route53user_secret_access_key }}"
-ocp4_workload_cert_manager_use_catalog_snapshot: false
-ocp4_workload_cert_manager_install_ingress_certificates: true
-ocp4_workload_cert_manager_install_api_certificates: false
-
-ocp4_workload_capacity_planning_workshop_hub_mode: false
-ocp4_workload_capacity_planning_workshop_deploy_rhacm: false
-ocp4_workload_capacity_planning_workshop_deploy_monitoring: true
-ocp4_workload_capacity_planning_workshop_deploy_sample_apps: true
-ocp4_workload_capacity_planning_workshop_deploy_showroom: false
-# After hub provisions, set this to the RHACM console URL (pre-populates Module 5):
-# ocp4_workload_capacity_planning_workshop_hub_rhacm_url: "https://multicloud-console.apps.hub.hub-capacity.<base_domain>"
-
-ocp4_workload_lightspeed_model_primary: "qwen3-14b"
-ocp4_workload_lightspeed_model_comparison: "granite-3-2-8b-instruct"
-ocp4_workload_lightspeed_introspection_enabled: true
-# Set ocp4_workload_lightspeed_litemaas_api_token in your secrets file — never here.
+# Route 53 base domain for this sandbox account
+base_domain: sandbox<N>.opentlc.com
 ```
 
 ---
 
-## Cost Model (AWS us-east-2 on-demand, 8-hour session)
-
-| Cluster | Instance type | Nodes | vCPU | RAM | ~Cost/8h |
-|---|---|---|---|---|---|
-| Hub | m7a.2xlarge | 3 | 24 | 96 GB | ~$16 |
-| Student (each) | m7a.2xlarge | 3 | 24 | 96 GB | ~$11 |
-| **8 students total** | | 24+3 bastion | 192+24 | 768+96 GB | **~$104** |
-
-> **Recommended maximum: 8 students** — balances cost, AWS quota limits, and RHACM observability overhead.
-
----
-
-## Provisioning Sequence
-
-### Step 1 — Provision hub cluster
+## Step 2 — Provision the Hub
 
 ```bash
 cd ~/agnosticd-v2
-
-nohup ./bin/agd provision \
+./bin/agd provision \
   --guid hub-capacity \
   --config hub-aws \
-  --account sandbox5388 \
-  > /tmp/provision-hub.log 2>&1 &
-
-tail -f /tmp/provision-hub.log
+  --account sandbox<N>
 ```
 
-Hub provisioning takes **~60–90 minutes** (OCP install + cert-manager + GitOps + RHACM + Observability + Showroom).
+**Duration**: 90–120 minutes (OCP install + RHACM + Grafana + Showroom).
 
-### Step 2 — Record hub RHACM URL
+When complete, check `~/agnosticd-v2-output/hub-capacity/provision-user-data.yaml` for:
 
-Once hub provisioning completes, retrieve the hub user-info output:
+| Key | Description |
+|-----|-------------|
+| `hub_rhacm_url` | RHACM console URL |
+| `hub_grafana_url` | Read-only Grafana |
+| `hub_dev_grafana_url` | Interactive Grafana (dev) |
+| `lab_ui_url` | Showroom lab guide URL |
+| `hub_password` | kubeadmin password |
+
+---
+
+## Step 3 — Prepare Student Vars
+
+Copy `hub-aws.yml` → `student-NN.yml` (or start from `student-compact-aws.yml`) and set:
+
+```yaml
+guid: student-01   # unique per student
+
+# Paste from hub provision-user-data.yaml:
+ocp4_workload_capacity_planning_workshop_hub_rhacm_url: "https://console-openshift-console.apps.hub.hub-capacity.sandbox<N>.opentlc.com/multicloud"
+ocp4_workload_capacity_planning_workshop_hub_kubeadmin_password: "openshift"
+```
+
+### Workloads
+
+```yaml
+workloads:
+- agnosticd.core_workloads.ocp4_workload_cert_manager
+- agnosticd.core_workloads.ocp4_workload_openshift_gitops
+- ocp4_workload_capacity_planning_workshop
+# ocp4_workload_lightspeed — see Lightspeed section below before enabling
+```
+
+---
+
+## Step 4 — Provision a Student Cluster
 
 ```bash
-cat ~/agnosticd-v2-output/hub-capacity/user-info.yaml
+cd ~/agnosticd-v2
+./bin/agd provision \
+  --guid student-01 \
+  --config student-01 \
+  --account sandbox<N>
 ```
 
-Look for `hub_rhacm_console` — e.g.:
+**Duration**: 60–75 minutes (OCP install ~45 min + workloads ~20 min).
+
+Key output keys in `provision-user-data.yaml`:
+
+| Key | Description |
+|-----|-------------|
+| `openshift_console_url` | Student OCP console |
+| `openshift_api_url` | API endpoint |
+| `openshift_cluster_ingress_domain` | Wildcard apps domain |
+| `openshift_gitops_server` | ArgoCD console URL |
+| `bastion_public_hostname` | SSH jump host |
+| `bastion_ssh_password` | SSH password |
+
+---
+
+## Known Behaviors and Workarounds
+
+### Sample App Cold-Start Timeout
+
+**Symptom**: Provision ends with `failed=1` and log shows:
+
 ```
-hub_rhacm_console: https://multicloud-console.apps.hub.sandbox5388.opentlc.com
+fatal: [localhost]: FAILED! => {"api_found": true, "attempts": 30, ...
+  "msg": "Task failed: Action failed: Unknown error.", "resources": []}
 ```
 
-### Step 3 — Update student vars with hub RHACM URL and LiteMaaS token
+**Cause**: The `[STUDENT] Wait for sample applications to be ready` task previously had a 5-minute (30 × 10 s) timeout — not enough for container images to pull on a cold cluster.
 
-**Hub RHACM URL (optional)** — injected into `student-compact-aws.yml` so Module 5 instructions are pre-populated:
+**Status**: Fixed. The timeout is now **25 minutes** (100 × 15 s). Reprovisioning after the fix will succeed.
+
+**Manual workaround** (pre-fix): Wait ~15 minutes after provision completes, then verify via ArgoCD:
+
+```bash
+oc get application capacity-planning-workshop -n openshift-gitops \
+  --kubeconfig ~/agnosticd-v2-output/student-01/openshift-cluster_student-01_kubeconfig
+```
+
+Check `status.health.status == Healthy` and `status.sync.status == Synced`.
+
+---
+
+### ocp4_workload_lightspeed — Role Not Yet Installed
+
+**Symptom**: Provision fails immediately at "Install workloads" with:
+
+```
+ERROR: the role 'ocp4_workload_lightspeed' was not found in ...
+```
+
+**Cause**: `ocp4_workload_lightspeed` is a workshop-specific role for Module 8 (OpenShift Lightspeed). It does not ship with the standard agnosticd-v2 distribution.
+
+**Fix**: Keep it commented out in `student-NN.yml` until the role is available:
 
 ```yaml
-# In student-compact-aws.yml, uncomment and set:
-ocp4_workload_capacity_planning_workshop_hub_rhacm_url: "https://multicloud-console.apps.hub.sandbox5388.opentlc.com"
+workloads:
+- agnosticd.core_workloads.ocp4_workload_cert_manager
+- agnosticd.core_workloads.ocp4_workload_openshift_gitops
+- ocp4_workload_capacity_planning_workshop
+# - ocp4_workload_lightspeed   # enable after adding role to requirements_content
 ```
 
-> **Note**: This is informational only — the student cluster does NOT auto-register. Students perform the cluster import during Module 5 as a hands-on exercise.
-
-**LiteMaaS API token (required for Module 8 — OpenShift Lightspeed)** — the `ocp4_workload_lightspeed` workload is included in the student cluster provisioning and requires a LiteMaaS virtual key. Add this to `~/agnosticd-v2-secrets/secrets.yml` or a per-student secrets file — **never put tokens in the vars file**:
+To enable when the role is ready, add its git repo to `requirements_content` in the vars file and set the required variable:
 
 ```yaml
-# In ~/agnosticd-v2-secrets/secrets.yml (applies to all students), or per-student:
+requirements_content:
+  collections:
+  - name: https://github.com/agnosticd/core_workloads.git
+    type: git
+    version: "{{ tag }}"
+  - name: https://github.com/<org>/ocp4_workload_lightspeed.git   # ← add this
+    type: git
+    version: main
+
+# Required: obtain from RHDP LiteMaaS portal
 ocp4_workload_lightspeed_litemaas_api_token: "sk-..."
 ```
 
-Get a virtual key from the [RHDP LiteMaaS portal](https://litellm-prod.apps.maas.redhatworkshops.io) or request one via the `rhpds.litellm_virtual_keys` AgnosticD action. The `lab-prod` package includes Granite 3.2 8B and Qwen3-14B (both required for Lab 8D).
+---
 
-### Step 4 — Provision student clusters (in parallel)
+### EIP Quota Exhaustion
+
+**Symptom**: OCP installer fails with:
+
+```
+level=error msg=failed to create cluster: infrastructure was not ready within 15m0s:
+  client rate limiter Wait returned an error: context deadline exceeded
+```
+
+**Cause**: AWS Elastic IP quota hit. Compact clusters use 4 EIPs each (3 NAT GWs + 1 bastion). The default quota of 5 is insufficient even for the hub alone.
+
+**Fix**:
+1. Destroy the failed deployment: `./bin/agd destroy --guid <guid> --config <config> --account <account>`
+2. Increase EC2-VPC Elastic IP limit in the [AWS Service Quotas console](https://us-east-2.console.aws.amazon.com/servicequotas/home/services/ec2/quotas/L-0263D0A3) — request at least 15 for hub + 1 student, 40 for hub + 8 students
+3. Wait for auto-approval (typically < 5 minutes) then re-provision
+
+---
+
+## Lifecycle Operations
+
+All clusters support stop/start/status for RHDP cost management:
 
 ```bash
 cd ~/agnosticd-v2
 
-for STUDENT in student-01 student-02; do
-  # Update the guid in a temp copy
-  sed "s/guid: student-01/guid: ${STUDENT}/" \
-    ~/agnosticd-v2-vars/student-compact-aws.yml \
-    > /tmp/${STUDENT}-aws.yml
+# Stop all EC2 instances (saves cost overnight)
+./bin/agd stop   --guid hub-capacity --config hub-aws    --account sandbox<N>
+./bin/agd stop   --guid student-01   --config student-01 --account sandbox<N>
 
-  nohup ./bin/agd provision \
-    --guid ${STUDENT} \
-    --config /tmp/${STUDENT}-aws \
-    --account sandbox5388 \
-    > /tmp/provision-${STUDENT}.log 2>&1 &
-done
+# Start clusters (allow 5–15 min for DNS to propagate after start)
+./bin/agd start  --guid hub-capacity --config hub-aws    --account sandbox<N>
+./bin/agd start  --guid student-01   --config student-01 --account sandbox<N>
 
-# Monitor progress
-tail -f /tmp/provision-student-01.log
+# Check current power state
+./bin/agd status --guid hub-capacity --config hub-aws    --account sandbox<N>
+./bin/agd status --guid student-01   --config student-01 --account sandbox<N>
 ```
 
-Student cluster provisioning takes **~45–60 minutes** (OCP install + cert-manager + GitOps + workshop workloads).
+> **DNS note**: After `agd start`, public hostnames (console, API, Showroom) take 5–15 minutes to resolve as AWS re-associates Elastic IPs. The bastion SSH should be reachable within ~2 minutes.
 
 ---
 
-## Post-Provision: Wire Showroom Terminal
+## Validation Checklist
 
-After a student cluster is provisioned, wire the hub's Showroom terminal to that student's API:
+After both clusters provision, verify:
 
-```bash
-# Get the student API URL from their user-info
-cat ~/agnosticd-v2-output/student-01/user-info.yaml | grep student_cluster_api_url
-# e.g.: student_cluster_api_url: https://api.student.student-01.sandbox5388.opentlc.com:6443
-
-# Update hub Showroom to point to this student's cluster
-# (Re-run hub workloads with updated Showroom terminal target)
-```
+- [ ] Hub Showroom loads: `https://showroom-showroom-<guid>.apps.hub.<guid>.<domain>/`
+- [ ] Hub RHACM console loads and shows 0 clusters initially
+- [ ] Student ArgoCD app `capacity-planning-workshop` is **Healthy + Synced**
+- [ ] Student sample apps Deployments are all Available: `oc get deploy -n capacity-workshop`
+- [ ] Student can SSH to bastion using credentials from `provision-user-info.yaml`
+- [ ] Student can log into OCP console with `kubeadmin` (password in `openshift-cluster_<guid>_kubeadmin-password`)
 
 ---
 
-## Module 5: Student Cluster Import into RHACM
+## Troubleshooting Quick Reference
 
-During Module 5, students perform the RHACM managed cluster import themselves:
-
-1. Student navigates to the hub RHACM console (`hub_rhacm_console` from user-info)
-2. In RHACM → **Infrastructure** → **Clusters** → **Import cluster**
-3. Enter the cluster name (their `guid`, e.g., `student-01`)
-4. Copy the generated `kubectl apply` command
-5. Run the command on their student cluster:
-   ```bash
-   oc login <student-cluster-api>
-   # paste the generated import command
-   ```
-6. Within ~5 minutes the cluster appears as "Ready" in RHACM
-7. The Grafana fleet dashboard (God's-Eye view) now shows metrics from all imported clusters
-
----
-
-## cert-manager Notes
-
-Both hub and student clusters use cert-manager with Let's Encrypt DNS-01 challenge via Route53. The CloudFormation stack (deployed by `openshift-cluster` config) automatically creates a Route53 IAM user and outputs the credentials as `route53user_access_key` and `route53user_secret_access_key`. The `hub-aws.yml` and `student-compact-aws.yml` reference these via:
-
-```yaml
-ocp4_workload_cert_manager_aws_access_key_id: "{{ hostvars['localhost']['route53user_access_key'] }}"
-ocp4_workload_cert_manager_aws_secret_access_key: "{{ hostvars['localhost']['route53user_secret_access_key'] }}"
-```
-
-No additional credentials are needed — they are provisioned automatically.
-
----
-
-## Storage Notes (RHACM Observability)
-
-RHACM Observability (Thanos) on the hub uses **AWS S3** as the metrics object store:
-
-- Storage class: `gp3-csi` (for PVCs on the hub compact cluster)
-- Thanos object storage: S3 bucket `rhacm-metrics-hub-capacity` in `us-east-2`
-- The workload role automatically creates the S3 bucket and configures the Thanos secret
-
-On-prem OCS/NooBaa is **not** used in this topology (no OpenShift Data Foundation on the hub).
-
----
-
-## Destroy Clusters
-
-```bash
-cd ~/agnosticd-v2
-
-# Destroy a student cluster
-./bin/agd destroy --guid student-01 --config student-compact-aws --account sandbox5388
-
-# Destroy the hub (do this last)
-./bin/agd destroy --guid hub-capacity --config hub-aws --account sandbox5388
-```
-
-> **Important**: If an `agd provision` run fails partway through OCP installation, the bastion may have a stale install directory. SSH to the bastion and clear it before re-running:
-> ```bash
-> # Hub bastion
-> ssh ec2-user@bastion.hub-capacity.sandbox5388.opentlc.com "rm -rf ~/hub"
-> # Student bastion
-> ssh ec2-user@bastion.student-01.sandbox5388.opentlc.com "rm -rf ~/student"
-> ```
+| Symptom | Likely cause | Action |
+|---------|-------------|--------|
+| EIP quota error during install | Default quota too low | Destroy → request quota increase → re-provision |
+| `ocp4_workload_lightspeed` role not found | Role not in ansible path | Comment out from `workloads:` list |
+| Sample apps not ready (provision fails) | Cold-start image pull timeout | Verify with `oc get deploy -n capacity-workshop`; wait 15 min; re-run if needed |
+| Showroom shows placeholder `{attributes}` | `agnosticd_user_info` keys missing | Check `provision-user-data.yaml` has all required keys |
+| Console/API unreachable after `agd start` | DNS propagation delay | Wait 10–15 min for EIP re-association |
+| ArgoCD Application shows `OutOfSync` | Git repo unreachable from cluster | Check egress and DNS from student cluster |
