@@ -29,6 +29,9 @@ test-output/
 # Ignore sensitive or private information
 secrets.json
 
+# Per-deployment student credential sheet (contains passwords — never commit)
+student-info.txt
+
 # Ignore compiled binaries or executables
 *.exe
 *.dll
