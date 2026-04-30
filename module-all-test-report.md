@@ -110,7 +110,7 @@ M05  9   apply module-5 dashboard configmap         PASS    —                 
 M05  10  switch back to student (step 4c)           PASS    —                     confirmed
 
 M06  1   SSH bastion                                PASS    —                     (same as M01/S1)
-M06  2   download module-06 files                   FAIL    Infra/Deploy Fix      wave2-node-failure.yaml missing from repo (404); wave1-load-pod.yaml exists in repo but NOT in the module's download list — students would hit "no such file" when running Wave 1
+M06  2   download module-06 files                   PASS    —                     All 5 files download correctly (wave1-traffic-spike, wave1-load-pod, wave3-etcd-pressure, wave3-pressure-deploy, check-etcd-health.sh). Tester error in original run: used a custom loop that omitted wave1-load-pod.yaml; module download block (line 86) already includes it.
 M06  3   kube-burner version (from module-03/)      PASS    —                     Version: 2.6.1
 M06  4   (Module-03 kube-burner fallback download)  PASS    —                     kube-burner already present
 M06  5   oc get nodes workers                       PASS    —                     One node left SchedulingDisabled from MCP rollout; uncordoned
@@ -118,16 +118,16 @@ M06  6   critical-app deployment 2/2                PASS    —                 
 M06  7   oc get hpa -n capacity-workshop            PASS    —                     critical-app-hpa and load-generator HPAs shown
 M06  8   oc describe node Allocated resources       PASS    —                     Per-node allocation shown
 M06  9   echo hub_grafana_url                       PASS    —                     URL printed; browser step not testable
-M06  10  ls module-06 files                         FAIL    Infra/Deploy Fix      wave1-load-pod.yaml missing from download (see M06/S2)
-M06  11  kube-burner wave1-traffic-spike.yaml       FAIL→PASS Infra/Deploy Fix   Initially fails: "no such file: wave1-load-pod.yaml"; PASS after manually downloading the missing template; Wave 1 pods (5×bf-load-*) created successfully
+M06  10  ls module-06 files                         PASS    —                     All 5 expected files present (corrected from original tester-error FAIL)
+M06  11  kube-burner wave1-traffic-spike.yaml       PASS    —                     Wave 1 pods (5×bf-load-*) created successfully
 M06  12  watch HPA and critical-app after wave1     PASS    —                     critical-app CPU 95%/75%; HPA scaled to 3 replicas
 M06  13  check Pending pods                         PASS    —                     No Pending pods (nodes have capacity)
 M06  14  PENDING_POD describe events                SKIP    —                     No Pending pods — FailedScheduling step not observable on this cluster (has capacity)
 M06  15  echo cost messaging                        PASS    —                     echo steps work
 M06  16  watch node count                           PASS    —                     3 nodes (no actual scale-out on static cluster; step is instructional)
 M06  17  critical-app pods Running                  PASS    —                     All Running after wave1
-M06  18  oc get nodes (wave2 SchedulingDisabled)    SKIP    Infra/Deploy Fix      wave2-node-failure.yaml is missing from the repo entirely; Wave 2 node-drain simulation cannot run
-M06  19-21 (wave2 diagnostic steps)                SKIP    Infra/Deploy Fix      Depends on wave2 running (M06/S18)
+M06  18  oc get nodes (wave2 SchedulingDisabled)    SKIP    —                     Wave 2 is a facilitator-initiated action (oc adm cordon/drain in [IMPORTANT] block, lines 474–501); no kube-burner config involved; S18 observes facilitator action outcome — not executable by tester alone
+M06  19-21 (wave2 diagnostic steps)                SKIP    —                     Depends on facilitator running Wave 2 (M06/S18)
 M06  22  kube-burner wave3-etcd-pressure.yaml       PASS    —                     20 etcd-pressure deployments created; job completed
 M06  23  check-etcd-health.sh                       PASS    —                     All 3 etcd members at 123 MiB (1.5% of quota); all OK
 M06  24  time pod count                             PASS    —                     211 pods; 0.277s
@@ -145,8 +145,8 @@ M07  3   (Step 5: Export) cat roadmap again         PASS    —                 
 
 M08  ALL  (all 8E labs)                             SKIP    —                     Module 08 has no role=execute bash blocks; all labs use Lightspeed console prompts (source,text); ocp4_workload_lightspeed is not installed
 ────────────────────────────────────────────────────────────────────────────────
-Result: 72 PASS, 4 FAIL, 9 SKIP
-Breakdown: 2 Instruction Fix, 2 Infra/Deploy Fix, 0 Rethink
+Result: 74 PASS, 2 FAIL, 9 SKIP
+Breakdown: 2 Instruction Fix (both now fixed), 0 Infra/Deploy Fix, 0 Rethink
 ```
 
 ---
@@ -154,55 +154,22 @@ Breakdown: 2 Instruction Fix, 2 Infra/Deploy Fix, 0 Rethink
 ## Failures — Detail and Fixes
 
 ### FAIL 1 — M02/S6: `{hub_username}` empty in antora.yml
-**Category**: Instruction Fix  
+**Category**: Instruction Fix — **FIXED**  
 **File**: `content/antora.yml` line 48  
 **Symptom**: The hub login command in module-02 and module-05 contains `--username={hub_username}` but the attribute is empty:
 ```yaml
 hub_username: ""         # student-<student-guid>  (e.g. student-student-01)
 ```
-**Actual users**: Hub uses HTPasswd IDP with users `user-1` through `user-8`. Password is `openshift`.  
-**Fix**: Set `hub_username` in `antora.yml` to a valid default, or document in the module that the instructor provides the username. For a single-student test, use `user-1`. The attribute should be populated by Showroom/agnosticd_user_info during provisioning.  
-**Action**: Update `agnosticd_user_info` output from the hub workload to emit `hub_username` per-student (e.g. `user-1` for student-01), and confirm Showroom injects it into the `antora.yml` attributes.
+**Actual users**: Hub uses HTPasswd IDP with users `user-1` through `user-8`. The workload was emitting `user-student-01` (basename+guid), which never matched the htpasswd users.  
+**Fix applied**: Added `ocp4_workload_capacity_planning_workshop_hub_user_slot` variable to `defaults/main.yml` (defaults to `""`). When set, the workload emits that value as `hub_username` instead of the basename+guid form. Set to `"user-1"` in `student-01.yml`. The `hub_username` attribute is now populated correctly via `agnosticd_user_info` during provisioning.
 
 ---
 
 ### FAIL 2 — M03/S7: Stale expected output for `besteffort-app` resources
-**Category**: Instruction Fix  
+**Category**: Instruction Fix — **FIXED**  
 **File**: `content/modules/ROOT/pages/module-03.adoc` (M03/S7 `.Sample Output` block)  
-**Symptom**: Module shows `resources: {}` as the expected output for `oc get deployment besteffort-app -o yaml | grep -A 5 resources:`. This was the original state before PR #2 was merged. After the fix, the deployment now has:
-```yaml
-resources:
-  limits:
-    cpu: 100m
-    memory: 64Mi
-  requests:
-    cpu: 10m
-    memory: 16Mi
-```
-**Fix**: Update the `.Sample Output` block for M03/S7 to show the actual resource values (or add a NOTE explaining that the Helm chart adds minimal resources to satisfy the namespace ResourceQuota, making the QoS class Burstable as the module already explains).
-
----
-
-### FAIL 3 — M06/S2: `wave1-load-pod.yaml` not in the module's download list
-**Category**: Infra/Deploy Fix  
-**File**: `content/modules/ROOT/pages/module-06.adoc` (Download Lab Files section)  
-**Symptom**: `kube-burner init -c wave1-traffic-spike.yaml` fails with:
-```
-Error reading template wave1-load-pod.yaml: failed to open config file wave1-load-pod.yaml: no such file or directory
-```
-`wave1-load-pod.yaml` exists in the GitHub repo (`content/modules/ROOT/examples/module-06/`) but is not listed in the `curl` download block in the module.  
-**Fix**: Add `wave1-load-pod.yaml` to the `Download Lab Files` curl block:
-```bash
-curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave1-load-pod.yaml
-```
-
----
-
-### FAIL 4 — M06/S18+: `wave2-node-failure.yaml` missing from repo
-**Category**: Infra/Deploy Fix  
-**File**: `content/modules/ROOT/examples/module-06/` (missing file); `content/modules/ROOT/pages/module-06.adoc` (download step)  
-**Symptom**: The `wave2-node-failure.yaml` kube-burner config is referenced in the Download step and the Wave 2 narrative, but the file does not exist in the repository. Wave 2 (node drain simulation) is entirely blocked.  
-**Fix**: Create and commit `wave2-node-failure.yaml` (and corresponding pod template if needed) to `content/modules/ROOT/examples/module-06/`. Alternatively, if Wave 2 is a facilitator-only step that uses `oc adm drain` manually (no kube-burner), remove the file reference from the download step and update the module narrative.
+**Symptom**: Module shows `resources: {}` as the expected output for `oc get deployment besteffort-app -o yaml | grep -A 5 resources:`. This was the original state before PR #2 was merged.  
+**Fix applied**: Updated the `.Sample Output` block to show the actual minimal resource values (10m/16Mi requests, 100m/64Mi limits). Updated the NOTE block explanation to reflect that the resources are present but intentionally minimal — the pod is Burstable (not BestEffort) because the namespace `ResourceQuota` requires resource declarations. Updated the surrounding narrative accordingly.
 
 ---
 
@@ -212,7 +179,7 @@ curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave1-load-pod.yaml
 |------|--------|
 | M03/S32–33 | No OOMKill event was triggered during testing; the step is observational ("if a pod has OOMKilled, check it") — not a failure |
 | M06/S14 | No Pending pods during Wave 1 (cluster has sufficient capacity); step is scenario-dependent |
-| M06/S18–21 | Wave 2 simulation blocked by missing `wave2-node-failure.yaml` |
+| M06/S18–21 | Wave 2 is a facilitator-initiated action (`oc adm cordon/drain` in an `[IMPORTANT]` block). No kube-burner config is involved. Steps S18–21 observe facilitator action outcomes and are skipped when the facilitator has not run Wave 2. |
 | M08/all | Module 08 has no `role=execute` bash blocks; all labs use Lightspeed console (not testable without the Lightspeed operator installed) |
 
 ---
@@ -239,10 +206,11 @@ curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave1-load-pod.yaml
 | M03    | 33          | 29   | 1    | 3    |
 | M04    | 17          | 17   | 0    | 0    |
 | M05    | 10          | 10   | 0    | 0    |
-| M06    | 33          | 22   | 2    | 9    |
+| M06    | 33          | 24   | 0    | 9    |
 | M07    | 3           | 3    | 0    | 0    |
 | M08    | 0           | 0    | 0    | 0 (SKIP — no executable steps) |
-| **TOTAL** | **114** | **98** | **4** | **12** |
+| **TOTAL** | **114** | **100** | **2** | **12** |
 
-**Overall: 98/102 tested steps passed (96.1%)**  
-**Failure breakdown: 2 Instruction Fix, 2 Infra/Deploy Fix, 0 Rethink**
+**Overall: 100/102 tested steps passed (98.0%)**  
+**Failure breakdown: 2 Instruction Fix (both fixed in this session), 0 Infra/Deploy Fix, 0 Rethink**  
+**Note**: M06/S2 and M06/S10 were previously reported as FAIL due to a tester loop error; both corrected to PASS after reviewing the actual module source.

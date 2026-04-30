@@ -71,9 +71,9 @@ Burstable
 ====
 *Why does `besteffort-app` show Burstable, not BestEffort?*
 
-The `capacity-workshop` namespace has a `ResourceQuota` that tracks `requests.cpu` and `limits.cpu`. When a quota specifies compute resource fields, Kubernetes *requires every pod to declare those resources*, otherwise it rejects the pod. The besteffort-app's `resources: {}` Deployment is valid YAML, but the scheduler injects default values from the quota enforcement layer, making it Burstable.
+The `capacity-workshop` namespace has a `ResourceQuota` that enforces `requests.cpu`, `limits.cpu`, `requests.memory`, and `limits.memory`. When a quota tracks those fields, Kubernetes *rejects any pod that omits them entirely*. The `besteffort-app` therefore carries deliberately minimal resources (10m CPU / 16Mi memory request, 100m CPU / 64Mi memory limit) so it can be admitted. Because requests < limits, Kubernetes classifies it as *Burstable*, not BestEffort.
 
-*This is intentional in production clusters.* Platform engineers use ResourceQuota to prevent BestEffort pods from silently starving other workloads. You can demonstrate BestEffort in a scratch namespace:
+*This is intentional in production clusters.* Platform engineers use ResourceQuota to prevent true BestEffort pods from silently starving other workloads. The `besteffort-app` illustrates the *near-BestEffort* scenario: it is Burstable but its requests are so low that it will be the first Burstable pod evicted under memory pressure. You can still observe a true BestEffort pod in a scratch namespace that has no quota:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
@@ -154,10 +154,18 @@ oc get deployment besteffort-app -n {namespace} -o yaml | grep -A 5 "resources:"
 .Sample Output
 [source,yaml]
 ----
-resources: {}
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
 ----
 
-*No requests, no limits* = *BestEffort* QoS class = *First to die under pressure*.
+*Requests and limits are set, but intentionally minimal* — 10m CPU and 16Mi memory requests are far below what a real workload needs.
+Because requests < limits, this pod has a *Burstable* QoS class, not BestEffort.
+Under memory pressure it sits near the *bottom of the eviction stack*, just above a true BestEffort pod — making it one of the first Burstable pods to be evicted.
 
 === Part 2: The Squeeze - Launch a Noisy Neighbor
 
