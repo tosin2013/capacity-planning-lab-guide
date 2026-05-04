@@ -7,16 +7,22 @@
 # Safe to re-run: clusters whose provision-user-data.yaml
 # already contains the OCP marker field are skipped.
 #
+# First-run bootstrap: if ~/agnosticd-v2-vars/ is missing or
+# empty, this script copies the templates from deploy/vars/ and
+# exits with instructions so you can customise them before
+# re-running.
+#
 # Usage:
 #   bash scripts/deploy-workshop.sh [OPTIONS]
 #
 # Options:
-#   --account   ACCOUNT      AgnosticD account name (default: sandbox3967)
-#   --hub-guid  GUID         Hub GUID              (default: hub-capacity)
-#   --students  "01 02 03"   Space-separated slots (default: "01 02 03")
-#   --skip-hub               Skip hub provision entirely
-#   --dry-run                Print agd commands without executing them
-#   -h, --help               Show this help
+#   --account      ACCOUNT      AgnosticD account name (default: sandbox3967)
+#   --hub-guid     GUID         Hub GUID              (default: hub-capacity)
+#   --students     "01 02 03"   Space-separated slots (default: "01 02 03")
+#   --skip-hub                  Skip hub provision entirely
+#   --skip-showroom             Skip the multi-user Showroom deployment step
+#   --dry-run                   Print agd commands without executing them
+#   -h, --help                  Show this help
 #
 # Examples:
 #   # Full deploy — hub + 3 students
@@ -36,6 +42,7 @@ ACCOUNT="${ACCOUNT:-sandbox3967}"
 HUB_GUID="${HUB_GUID:-hub-capacity}"
 STUDENT_SLOTS="${STUDENT_SLOTS:-01 02 03}"
 SKIP_HUB=false
+SKIP_SHOWROOM=false
 DRY_RUN=false
 
 AGD_DIR="${HOME}/agnosticd-v2"
@@ -93,11 +100,12 @@ run_provision() {
 # ── Argument parsing ──────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --account)   ACCOUNT="$2";      shift 2 ;;
-    --hub-guid)  HUB_GUID="$2";     shift 2 ;;
-    --students)  STUDENT_SLOTS="$2"; shift 2 ;;
-    --skip-hub)  SKIP_HUB=true;     shift ;;
-    --dry-run)   DRY_RUN=true;      shift ;;
+    --account)        ACCOUNT="$2";       shift 2 ;;
+    --hub-guid)       HUB_GUID="$2";      shift 2 ;;
+    --students)       STUDENT_SLOTS="$2"; shift 2 ;;
+    --skip-hub)       SKIP_HUB=true;      shift ;;
+    --skip-showroom)  SKIP_SHOWROOM=true; shift ;;
+    --dry-run)        DRY_RUN=true;       shift ;;
     -h|--help)
       sed -n '3,25p' "${BASH_SOURCE[0]}"
       exit 0
@@ -111,24 +119,90 @@ done
 # ── Pre-flight checks ─────────────────────────────────────────
 log_section "Pre-flight checks"
 
-# 1. agnosticd-v2 directory
+STUDENT_COUNT=$(echo "${STUDENT_SLOTS}" | wc -w | tr -d ' ')
+
+# 1. Vars files — auto-bootstrap from repo templates if missing.
+#    This runs FIRST so a new deployer gets a helpful setup message
+#    before any AWS or secrets checks.
+VARS_DIR="${HOME}/agnosticd-v2-vars"
+TEMPLATE_DIR="${REPO_ROOT}/deploy/vars"
+NEEDS_CUSTOMISATION=false
+
+bootstrap_var_file() {
+  local src="$1"   # template path in deploy/vars/
+  local dst="$2"   # destination path in ~/agnosticd-v2-vars/
+  if [[ ! -f "${dst}" ]]; then
+    log "Bootstrapping ${dst} from template ${src}"
+    mkdir -p "$(dirname "${dst}")"
+    cp "${src}" "${dst}"
+    NEEDS_CUSTOMISATION=true
+  fi
+}
+
+if [[ "${SKIP_HUB}" == false ]]; then
+  bootstrap_var_file "${TEMPLATE_DIR}/hub-aws.yml" "${VARS_DIR}/hub-aws.yml"
+fi
+
+for SLOT in ${STUDENT_SLOTS}; do
+  STUDENT_VARS="${VARS_DIR}/student-${SLOT}.yml"
+  if [[ ! -f "${STUDENT_VARS}" ]]; then
+    bootstrap_var_file "${TEMPLATE_DIR}/student.yml" "${STUDENT_VARS}"
+    # Set the correct guid and user slot in the freshly copied file
+    # Use a non-anchored end so trailing comments are preserved
+    sed -i "s/^guid: student-01/guid: student-${SLOT}/" "${STUDENT_VARS}"
+    SLOT_NUM="${SLOT#0}"   # strip leading zero: 01→1, 02→2
+    sed -i "s/hub_user_slot: \"user-1\"/hub_user_slot: \"user-${SLOT_NUM}\"/" "${STUDENT_VARS}"
+  fi
+done
+
+if [[ "${NEEDS_CUSTOMISATION}" == true ]]; then
+  log ""
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "  FIRST-RUN SETUP: var file templates have been copied to:"
+  log "    ${VARS_DIR}/"
+  log ""
+  log "  Before re-running this script you MUST:"
+  log "    1. Edit each file and replace <YOUR_EMAIL> with your email."
+  log "    2. After provisioning the hub, update the hub_rhacm_url in each"
+  log "       student-NN.yml (paste from hub provision-user-data.yaml)."
+  log "    3. Create your secrets file if it does not already exist:"
+  log "       cp ${TEMPLATE_DIR}/secrets.yml.example \\"
+  log "          ${HOME}/agnosticd-v2-secrets/secrets-${ACCOUNT}.yml"
+  log "       Then fill in your AWS credentials and base_domain."
+  log ""
+  log "  Once all files are customised, re-run:"
+  log "    bash scripts/deploy-workshop.sh --account ${ACCOUNT}"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  exit 0
+fi
+
+# All var files present — warn if raw placeholders remain
+for VAR_FILE in "${VARS_DIR}/hub-aws.yml" "${VARS_DIR}"/student-*.yml; do
+  [[ -f "${VAR_FILE}" ]] || continue
+  if grep -q "<YOUR_EMAIL>\|<HUB_GUID>\|<SANDBOX>" "${VAR_FILE}" 2>/dev/null; then
+    log "WARNING: ${VAR_FILE} still contains placeholder values."
+    log "         Edit it before provisioning or your clusters will be misconfigured."
+  fi
+done
+log "Vars files: all present — OK"
+
+# 2. agnosticd-v2 directory
 [[ -x "${AGD_DIR}/bin/agd" ]] \
   || die "agd not found at ${AGD_DIR}/bin/agd. Clone agnosticd-v2 first."
 
-# 2. AWS credentials
+# 3. AWS credentials
 aws sts get-caller-identity --output text > /dev/null 2>&1 \
   || die "AWS credentials invalid or not configured. Check ~/.aws/credentials."
 log "AWS credentials: OK"
 
-# 3. Secrets file
+# 4. Secrets file
 SECRETS_FILE="${HOME}/agnosticd-v2-secrets/secrets-${ACCOUNT}.yml"
 [[ -f "${SECRETS_FILE}" ]] \
   || die "Secrets file not found: ${SECRETS_FILE}"
 log "Secrets file: ${SECRETS_FILE} — OK"
 
-# 4. VPC quota check
+# 5. VPC quota check
 # Each cluster needs 2 VPCs (bastion + OCP); calculate required minimum
-STUDENT_COUNT=$(echo "${STUDENT_SLOTS}" | wc -w | tr -d ' ')
 CLUSTERS=$(( 1 + STUDENT_COUNT ))
 REQUIRED_VPCS=$(( CLUSTERS * 2 ))
 
@@ -157,18 +231,6 @@ if (( CURRENT_VPC_QUOTA < REQUIRED_VPCS )); then
   exit 1
 fi
 log "VPC quota: ${CURRENT_VPC_QUOTA} (need ${REQUIRED_VPCS}) — OK"
-
-# 5. Vars files exist for every cluster we intend to provision
-if [[ "${SKIP_HUB}" == false ]]; then
-  HUB_VARS="${HOME}/agnosticd-v2-vars/hub-aws.yml"
-  [[ -f "${HUB_VARS}" ]] || die "Hub vars file not found: ${HUB_VARS}"
-fi
-
-for SLOT in ${STUDENT_SLOTS}; do
-  SVARS="${HOME}/agnosticd-v2-vars/student-${SLOT}.yml"
-  [[ -f "${SVARS}" ]] || die "Student vars file not found: ${SVARS}"
-done
-log "Vars files: all present — OK"
 
 log "Pre-flight passed. DRY_RUN=${DRY_RUN}"
 log ""
@@ -411,9 +473,37 @@ YAML
   done
 fi
 
-# ── Post-provision ────────────────────────────────────────────
+# ── Post-provision: student-info.txt ─────────────────────────
 log_section "Generating student-info.txt"
-bash "${REPO_ROOT}/scripts/generate-student-info.sh"
+# Pass ACCOUNT as SANDBOX so URL construction uses the correct base domain.
+SANDBOX="${ACCOUNT}" \
+  HUB_GUID="${HUB_GUID}" \
+  STUDENT_GUIDS="$(for S in ${STUDENT_SLOTS}; do printf "student-%s " "$S"; done | sed 's/ $//')" \
+  bash "${REPO_ROOT}/scripts/generate-student-info.sh"
+
+# ── Post-provision: multi-user Showroom ──────────────────────
+# Deploys per-student Showroom namespaces on the hub and creates the
+# showroom-userdata ConfigMaps that inject {hub_username}, {hub_password},
+# {hub_grafana_url}, {student-cluster-bastion}, etc. into each student's
+# lab guide.  Without this step those attributes render as blank text.
+log_section "Deploying multi-user Showroom"
+
+if [[ "${SKIP_SHOWROOM}" == true ]]; then
+  log "Showroom: --skip-showroom flag set, skipping."
+  log "  To deploy later: bash scripts/deploy-multiuser-showroom.sh \\"
+  log "    --hub-guid ${HUB_GUID} --sandbox ${ACCOUNT} --students ${STUDENT_COUNT}"
+elif [[ "${DRY_RUN}" == true ]]; then
+  log "[DRY-RUN] would run: bash scripts/deploy-multiuser-showroom.sh \\"
+  log "  --hub-guid ${HUB_GUID} --sandbox ${ACCOUNT} --students ${STUDENT_COUNT}"
+else
+  SANDBOX="${ACCOUNT}" \
+  HUB_GUID="${HUB_GUID}" \
+    bash "${REPO_ROOT}/scripts/deploy-multiuser-showroom.sh" \
+      --hub-guid "${HUB_GUID}" \
+      --sandbox  "${ACCOUNT}" \
+      --students "${STUDENT_COUNT}" \
+    || log "WARNING: deploy-multiuser-showroom.sh exited non-zero — check output above."
+fi
 
 # ── Summary ───────────────────────────────────────────────────
 log_section "Summary"

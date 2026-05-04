@@ -1,0 +1,130 @@
+---
+# ===================================================================
+# Mandatory Variables
+# ===================================================================
+# Set guid to the student slot identifier, e.g. student-01, student-02, student-03.
+# Copy this file once per student and set the correct guid + hub_user_slot below.
+guid: student-01          # CHANGE per student: student-01, student-02, student-03, …
+tag: main
+cloud_provider: aws
+config: openshift-cluster
+# ===================================================================
+# End Mandatory Variables
+# ===================================================================
+
+# ===================================================================
+# Install Galaxy collections required by workloads
+# ===================================================================
+requirements_content:
+  collections:
+  - name: https://github.com/agnosticd/core_workloads.git
+    type: git
+    version: "{{ tag }}"
+
+# ===================================================================
+# AWS Settings
+# ===================================================================
+aws_region: us-east-2
+
+cloud_tags:
+- owner: <YOUR_EMAIL>           # e.g. name@redhat.com
+- Purpose: capacity-planning-workshop
+- config: openshift-cluster
+- guid: "{{ guid }}"
+
+# ===================================================================
+# SSH Key
+# ===================================================================
+# Optional: add your public key so you can SSH to the bastion directly.
+host_ssh_authorized_keys: []
+# - key: "ssh-ed25519 AAAA... you@host"
+
+# ===================================================================
+# Bastion Settings
+# ===================================================================
+bastion_setup_student_user: true
+bastion_student_user_name: lab-user
+
+# ===================================================================
+# Repository Settings
+# ===================================================================
+install_satellite_repositories: false
+install_rhn_repositories: false
+
+# ===================================================================
+# OpenShift Cluster Settings
+# ===================================================================
+cluster_name: student
+host_ocp4_installer_version: "4.19"
+host_ocp4_installer_root_url: https://mirror.openshift.com/pub/openshift-v4/clients
+host_ocp4_installer_set_user_data_kubeadmin_password: true
+openshift_cluster_admin_service_account_enable: true
+
+# Compact 3-node cluster: control-plane nodes act as workers.
+# m7a.2xlarge (24 vCPU / 96 GB total) is required — m7a.xlarge is insufficient
+# because the AgnosticD config derives a too-small default from worker_instance_count: 0.
+worker_instance_count: 0
+control_plane_instance_type: m7a.2xlarge
+
+# ===================================================================
+# Workloads
+# ===================================================================
+workloads:
+- agnosticd.core_workloads.ocp4_workload_cert_manager
+- agnosticd.core_workloads.ocp4_workload_openshift_gitops
+- ocp4_workload_capacity_planning_workshop
+# ocp4_workload_lightspeed is NOT yet installed in this agnosticd-v2 build.
+# Enabling it without the role present causes ALL workloads to fail.
+# To enable for Module 8: add the role to requirements_content and uncomment below.
+# - ocp4_workload_lightspeed
+
+# -------------------------------------------------------------------
+# Workload: ocp4_workload_cert_manager
+# Route53 IAM credentials are auto-injected by the CloudFormation stack.
+# -------------------------------------------------------------------
+ocp4_workload_cert_manager_channel: stable-v1.15
+ocp4_workload_cert_manager_aws_region: "{{ aws_region }}"
+ocp4_workload_cert_manager_aws_access_key_id: "{{ hostvars.localhost.route53user_access_key }}"
+ocp4_workload_cert_manager_aws_secret_access_key: "{{ hostvars.localhost.route53user_secret_access_key }}"
+ocp4_workload_cert_manager_use_catalog_snapshot: false
+ocp4_workload_cert_manager_install_ingress_certificates: true
+ocp4_workload_cert_manager_install_api_certificates: false
+
+# -------------------------------------------------------------------
+# Workload: ocp4_workload_capacity_planning_workshop
+# Student mode: deploys sample apps + Prometheus + simulation toolkit.
+# Showroom runs on the hub and points here; do not deploy Showroom on students.
+# -------------------------------------------------------------------
+ocp4_workload_capacity_planning_workshop_hub_mode: false
+ocp4_workload_capacity_planning_workshop_deploy_rhacm: false
+ocp4_workload_capacity_planning_workshop_deploy_monitoring: true
+ocp4_workload_capacity_planning_workshop_deploy_sample_apps: true
+ocp4_workload_capacity_planning_workshop_deploy_showroom: false
+
+# Hub RHACM console URL — paste from hub provision-user-data.yaml -> hub_rhacm_url
+# Used to pre-populate Module 5 instructions in the Showroom lab guide.
+ocp4_workload_capacity_planning_workshop_hub_rhacm_url: "https://console-openshift-console.apps.hub.<HUB_GUID>.<SANDBOX>.opentlc.com/multicloud"
+
+# Hub kubeadmin password — students perform the RHACM import during Module 5.
+# Use the shared htpasswd password set at hub provision time (default: openshift).
+ocp4_workload_capacity_planning_workshop_hub_kubeadmin_password: "openshift"
+
+# Hub sequential slot username for this student (matches hub htpasswd IDP).
+# The hub creates user-1 … user-N during provisioning.
+# student-01 → user-1, student-02 → user-2, student-03 → user-3, etc.
+ocp4_workload_capacity_planning_workshop_hub_user_slot: "user-1"   # CHANGE per student
+
+# -------------------------------------------------------------------
+# Workload: ocp4_workload_lightspeed (DISABLED — role not yet available)
+# Module 8 prerequisite — installs the OpenShift Lightspeed Operator
+# configured against the RHDP LiteMaaS LiteLLM proxy.
+#
+# To enable when the role is available:
+#   1. Add the role git repo to requirements_content above
+#   2. Uncomment - ocp4_workload_lightspeed in workloads above
+#   3. Set ocp4_workload_lightspeed_litemaas_api_token in your secrets file
+# -------------------------------------------------------------------
+ocp4_workload_lightspeed_model_primary: "qwen3-14b"
+ocp4_workload_lightspeed_model_comparison: "granite-3-2-8b-instruct"
+ocp4_workload_lightspeed_introspection_enabled: true
+# ocp4_workload_lightspeed_litemaas_api_token: "sk-..."  # set in secrets file — never here

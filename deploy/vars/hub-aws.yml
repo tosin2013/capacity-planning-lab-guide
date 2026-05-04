@@ -1,0 +1,107 @@
+---
+# ===================================================================
+# Mandatory Variables
+# ===================================================================
+guid: hub-capacity
+tag: main
+cloud_provider: aws
+config: openshift-cluster
+# ===================================================================
+# End Mandatory Variables
+# ===================================================================
+
+# ===================================================================
+# Install Galaxy collections required by workloads
+# ===================================================================
+requirements_content:
+  collections:
+  - name: https://github.com/agnosticd/core_workloads.git
+    type: git
+    version: "{{ tag }}"
+
+# ===================================================================
+# AWS Settings
+# ===================================================================
+aws_region: us-east-2
+
+cloud_tags:
+- owner: <YOUR_EMAIL>           # e.g. name@redhat.com
+- Purpose: capacity-planning-workshop
+- config: openshift-cluster
+- guid: "{{ guid }}"
+
+# ===================================================================
+# SSH Key
+# ===================================================================
+# Optional: add your public key so you can SSH to the bastion directly.
+# Leave the list empty ([]) to rely on the AgnosticD-generated key only.
+host_ssh_authorized_keys: []
+# - key: "ssh-ed25519 AAAA... you@host"
+
+# ===================================================================
+# Bastion Settings
+# ===================================================================
+bastion_setup_student_user: true
+bastion_student_user_name: lab-user
+
+# ===================================================================
+# Repository Settings
+# (RHCOS/OCP mirror used by installer — no Satellite/RHN needed)
+# ===================================================================
+install_satellite_repositories: false
+install_rhn_repositories: false
+
+# ===================================================================
+# OpenShift Cluster Settings
+# ===================================================================
+cluster_name: hub
+host_ocp4_installer_version: "4.19"
+host_ocp4_installer_root_url: https://mirror.openshift.com/pub/openshift-v4/clients
+host_ocp4_installer_set_user_data_kubeadmin_password: true
+openshift_cluster_admin_service_account_enable: true
+
+# Compact 3-node cluster: control-plane nodes act as workers.
+# m7a.2xlarge (8 vCPU / 32 GB each = 24 vCPU total) is required to run
+# RHACM + MCE + Observability + GitOps + cert-manager + Showroom together.
+# m7a.xlarge (4 vCPU) is insufficient — MCE pods will stay Pending.
+worker_instance_count: 0
+control_plane_instance_type: m7a.2xlarge
+
+# ===================================================================
+# Workloads
+# ===================================================================
+workloads:
+- agnosticd.core_workloads.ocp4_workload_cert_manager
+- agnosticd.core_workloads.ocp4_workload_openshift_gitops
+- ocp4_workload_capacity_planning_workshop
+
+# -------------------------------------------------------------------
+# Workload: ocp4_workload_cert_manager
+# Route53 IAM credentials are auto-created by the CloudFormation stack
+# and injected as hostvars by the openshift-cluster pre_infra phase.
+# -------------------------------------------------------------------
+ocp4_workload_cert_manager_channel: stable-v1.15
+ocp4_workload_cert_manager_aws_region: "{{ aws_region }}"
+ocp4_workload_cert_manager_aws_access_key_id: "{{ hostvars.localhost.route53user_access_key }}"
+ocp4_workload_cert_manager_aws_secret_access_key: "{{ hostvars.localhost.route53user_secret_access_key }}"
+ocp4_workload_cert_manager_use_catalog_snapshot: false
+ocp4_workload_cert_manager_install_ingress_certificates: true
+ocp4_workload_cert_manager_install_api_certificates: false
+
+# -------------------------------------------------------------------
+# Workload: ocp4_workload_capacity_planning_workshop
+# Hub mode: deploys RHACM + Observability + Showroom only.
+# No sample apps or per-student monitoring on the hub.
+# -------------------------------------------------------------------
+ocp4_workload_capacity_planning_workshop_hub_mode: true
+ocp4_workload_capacity_planning_workshop_deploy_rhacm: true
+ocp4_workload_capacity_planning_workshop_deploy_monitoring: false
+ocp4_workload_capacity_planning_workshop_deploy_sample_apps: false
+ocp4_workload_capacity_planning_workshop_deploy_showroom: true
+ocp4_workload_capacity_planning_workshop_rhacm_channel: release-2.16
+ocp4_workload_capacity_planning_workshop_rhacm_storage_class: gp3-csi
+# Thanos S3 bucket name — must be globally unique; include your guid to avoid collisions.
+ocp4_workload_capacity_planning_workshop_rhacm_thanos_bucket: "rhacm-metrics-hub-capacity"
+# Create htpasswd IDP users user-1 … user-N — one per student slot.
+# Must match the number of students you plan to provision.
+ocp4_workload_capacity_planning_workshop_max_users: 3
