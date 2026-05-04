@@ -76,9 +76,39 @@ One hub cluster hosts Showroom and RHACM. Each student gets a dedicated compact 
 
 ---
 
+## AWS Environment Options
+
+You can deploy this workshop using either a **Red Hat Demo Platform (RHDP) Open Environment** (recommended for Red Hat associates and partners) or your **own AWS account**.
+
+### Option A — RHDP Open Environment (recommended)
+
+Order a sandbox at [catalog.demo.redhat.com — Sandbox Open](https://catalog.demo.redhat.com/catalog/babylon-catalog-prod?item=babylon-catalog-prod/sandboxes-gpte.sandbox-open.prod). This gives you a temporary AWS account with:
+
+- Pre-configured IAM credentials (emailed to you as `ACCESS_KEY` / `SECRET_KEY`)
+- A Route 53 hosted zone at `sandbox<N>.opentlc.com` (your `base_domain`)
+- Pre-raised quota limits suitable for the hub + 3 student topology
+
+After ordering, your secrets file is just:
+
+```yaml
+aws_access_key_id: "<from RHDP email>"
+aws_secret_access_key: "<from RHDP email>"
+base_domain: sandbox<N>.opentlc.com   # shown in RHDP email subject / body
+```
+
+### Option B — Your own AWS account
+
+If you have your own AWS account you must:
+
+1. Have a Route 53 public hosted zone (e.g. `mycompany.example.com`) for cluster DNS.
+2. Request quota increases **before** provisioning (see table below).
+3. Use your account name as `--account` (any string; the secrets file name must match).
+
+Update `aws_region` in `hub-aws.yml` and `student.yml` if your account is not in `us-east-2`.
+
 ## AWS Quota Requirements
 
-> **Request quota increases before provisioning any cluster.** A 3-node compact OCP cluster deploys one NAT gateway per Availability Zone (3 AZs in us-east-2), consuming **4 Elastic IPs per cluster** (3 NAT gateways + 1 bastion). The default quota of 5 EIPs is exhausted by the hub cluster alone.
+> **RHDP sandboxes have these quotas pre-raised.** If using your own AWS account, request increases before running `agd provision`. A 3-node compact OCP cluster consumes **4 Elastic IPs per cluster** (3 NAT gateways + 1 bastion) — the default of 5 EIPs is exhausted by the hub cluster alone.
 
 | Resource | Default | hub + 1 student | hub + 8 students | Per-cluster breakdown |
 |---|---|---|---|---|
@@ -99,7 +129,7 @@ Submit quota increases via the [AWS Service Quotas console](https://us-east-2.co
 | Podman | 4.0+ | `podman --version` |
 | AgnosticD v2 | cloned to `~/agnosticd-v2` | `ls ~/agnosticd-v2/bin/agd` |
 | Virtualenv | activated at `~/agnosticd-v2-virtualenv` | `ls ~/agnosticd-v2-virtualenv/bin` |
-| AWS credentials | valid access/secret keys | `~/.aws/credentials` |
+| AWS credentials | RHDP email or own account keys | `~/.aws/credentials` |
 
 ---
 
@@ -139,17 +169,27 @@ Copy the template and fill in your credentials:
 ```bash
 mkdir -p ~/agnosticd-v2-secrets
 cp ~/capacity-planning-lab-guide/deploy/vars/secrets.yml.example \
-   ~/agnosticd-v2-secrets/secrets-sandbox<N>.yml
-# Then edit the file and replace the placeholder values.
+   ~/agnosticd-v2-secrets/secrets-<ACCOUNT>.yml
+# Then edit the file — see examples below.
 ```
 
-Minimum required content:
+**RHDP Open Environment** (sandbox account from the RHDP email):
+
+```yaml
+aws_access_key_id: "<ACCESS_KEY from RHDP email>"
+aws_secret_access_key: "<SECRET_KEY from RHDP email>"
+base_domain: sandbox<N>.opentlc.com
+```
+
+**Own AWS account** (replace with your Route 53 hosted zone domain):
 
 ```yaml
 aws_access_key_id: "AKIA..."
 aws_secret_access_key: "..."
-base_domain: sandbox<N>.opentlc.com
+base_domain: mycompany.example.com   # must be a Route 53 public hosted zone
 ```
+
+The `--account` value you pass to `deploy-workshop.sh` must match the filename suffix (e.g. `--account sandbox1234` → file is `secrets-sandbox1234.yml`).
 
 ---
 
