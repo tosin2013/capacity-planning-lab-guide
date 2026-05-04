@@ -128,9 +128,31 @@ Submit quota increases via the [AWS Service Quotas console](https://us-east-2.co
 |-----------|-----------------|-------|
 | Python | 3.12+ | `python3 --version` |
 | Podman | 4.0+ | `podman --version` |
-| AgnosticD v2 | cloned to `~/agnosticd-v2` | `ls ~/agnosticd-v2/bin/agd` |
+| AgnosticD v2 | **fork** cloned to `~/agnosticd-v2` (see below) | `ls ~/agnosticd-v2/bin/agd` |
 | Virtualenv | activated at `~/agnosticd-v2-virtualenv` | `ls ~/agnosticd-v2-virtualenv/bin` |
 | AWS credentials | RHDP email or own account keys | `~/.aws/credentials` |
+
+> **Important — use the fork, not upstream agnosticd-v2.** The `ocp4_workload_capacity_planning_workshop` Ansible role is in the `workload/capacity-planning-workshop` branch of [tosin2013/agnosticd-v2](https://github.com/tosin2013/agnosticd-v2/tree/workload/capacity-planning-workshop). It is not (yet) in the upstream agnosticd/agnosticd-v2 repo. Without it, provisioning fails at the "Install workloads" step.
+
+```bash
+# Clone the fork and run agd setup
+git clone https://github.com/tosin2013/agnosticd-v2.git ~/agnosticd-v2
+cd ~/agnosticd-v2
+git checkout workload/capacity-planning-workshop
+bin/agd setup
+```
+
+If you already cloned upstream, apply the workshop role without replacing the whole repo:
+
+```bash
+cd ~/agnosticd-v2
+git remote add fork https://github.com/tosin2013/agnosticd-v2.git
+git fetch fork workload/capacity-planning-workshop
+git checkout fork/workload/capacity-planning-workshop -- \
+  ansible/roles_ocp_workloads/ocp4_workload_capacity_planning_workshop
+ln -sfn ../roles_ocp_workloads/ocp4_workload_capacity_planning_workshop \
+  ansible/roles/ocp4_workload_capacity_planning_workshop
+```
 
 ---
 
