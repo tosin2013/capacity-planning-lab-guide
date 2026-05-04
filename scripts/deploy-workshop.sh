@@ -202,27 +202,34 @@ SECRETS_FILE="${HOME}/agnosticd-v2-secrets/secrets-${ACCOUNT}.yml"
 log "Secrets file: ${SECRETS_FILE} — OK"
 
 # 4a. Pull secret check — must be present and not the placeholder value.
-#     The OCP installer will fail ~7 min in if this is wrong; catch it here.
-if ! grep -q "^ocp4_pull_secret:" "${SECRETS_FILE}"; then
-  log ""
-  log "ERROR: ocp4_pull_secret is missing from ${SECRETS_FILE}"
-  log ""
-  log "  Get your pull secret at: https://console.redhat.com/openshift/install/pull-secret"
-  log "  Then add this line to ${SECRETS_FILE}:"
-  log "    ocp4_pull_secret: '<paste full JSON here>'"
-  log ""
-  exit 1
-fi
-if grep -q "ocp4_pull_secret: '<YOUR_PULL_SECRET_JSON>'" "${SECRETS_FILE}"; then
-  log ""
-  log "ERROR: ocp4_pull_secret in ${SECRETS_FILE} is still the placeholder value."
-  log ""
-  log "  Get your pull secret at: https://console.redhat.com/openshift/install/pull-secret"
-  log "  Replace the placeholder with the full JSON blob."
-  log ""
-  exit 1
-fi
-log "Pull secret: present — OK"
+#     agd loads TWO secrets files (account-specific first, then secrets.yml).
+#     Both must have a real pull secret; secrets.yml is loaded last and wins
+#     if it still has the placeholder, overriding the account-specific value.
+#     The OCP installer fails ~7 min in with a cryptic error — catch it here.
+GENERIC_SECRETS="${HOME}/agnosticd-v2-secrets/secrets.yml"
+for _sf in "${SECRETS_FILE}" "${GENERIC_SECRETS}"; do
+  [[ -f "${_sf}" ]] || continue
+  if ! grep -q "^ocp4_pull_secret:" "${_sf}"; then
+    log ""
+    log "ERROR: ocp4_pull_secret is missing from ${_sf}"
+    log ""
+    log "  Get your pull secret at: https://console.redhat.com/openshift/install/pull-secret"
+    log "  Then add this line to ${_sf}:"
+    log "    ocp4_pull_secret: '<paste full JSON here>'"
+    log ""
+    exit 1
+  fi
+  if grep -q "ocp4_pull_secret: '<YOUR_PULL_SECRET_JSON>'\|ocp4_pull_secret: '<Add Your Pull Secret here>'" "${_sf}"; then
+    log ""
+    log "ERROR: ocp4_pull_secret in ${_sf} is still the placeholder value."
+    log ""
+    log "  Get your pull secret at: https://console.redhat.com/openshift/install/pull-secret"
+    log "  Replace the placeholder with the full JSON blob."
+    log ""
+    exit 1
+  fi
+done
+log "Pull secret: present in all secrets files — OK"
 
 # 5. VPC quota check
 # Each cluster needs 2 VPCs (bastion + OCP); calculate required minimum

@@ -193,6 +193,8 @@ ocp4_pull_secret: '<full JSON blob from console.redhat.com>'
 ```
 
 > **Pull secret required.** Get yours at [console.redhat.com/openshift/install/pull-secret](https://console.redhat.com/openshift/install/pull-secret). Paste the entire JSON blob on a single line. Without it the OCP installer fails ~7 minutes into provisioning. The deploy script pre-flight check will catch a missing or placeholder value before any AWS resources are created.
+>
+> **Important:** `agd` loads two secrets files per run — your account-specific `secrets-<ACCOUNT>.yml` **and** the generic `~/agnosticd-v2-secrets/secrets.yml`. The generic file is loaded last and wins on any duplicate key. Set `ocp4_pull_secret` in **both** files, or leave it only in `secrets.yml` (the generic file always wins).
 
 The `--account` value you pass to `deploy-workshop.sh` must match the filename suffix (e.g. `--account sandbox1234` → file is `secrets-sandbox1234.yml`).
 
