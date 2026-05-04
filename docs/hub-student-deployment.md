@@ -9,19 +9,37 @@ Operator reference for deploying the Strategic Capacity Planning workshop on Red
 Use the idempotent deploy script for all provisioning. It handles pre-flight quota checks, skips clusters that are already healthy, bootstraps var file templates on first run, and deploys multi-user Showroom at the end.
 
 ```bash
-# First time on a new jumpbox — bootstrap var file templates and get instructions:
+# Step A — First time on a new jumpbox: bootstrap var file templates and get instructions.
+# The script exits immediately with a setup checklist — no clusters are provisioned yet.
 cd ~/capacity-planning-lab-guide
 bash scripts/deploy-workshop.sh --account sandbox<N>
-# The script exits and tells you which files to customise before re-running.
 
-# Full deploy once var files are customised — hub + 3 students + Showroom:
+# Step B — Edit the bootstrapped files (~5 min):
+#   ~/agnosticd-v2-vars/hub-aws.yml               replace <YOUR_EMAIL>
+#   ~/agnosticd-v2-vars/student-{01,02,03}.yml     replace <YOUR_EMAIL>
+#                                                  (leave hub_rhacm_url placeholder for now)
+#   ~/agnosticd-v2-secrets/secrets-sandbox<N>.yml  fill in AWS keys + base_domain
+
+# Step C — Provision hub + students in one run (~3–4 hours total):
 bash scripts/deploy-workshop.sh --account sandbox<N>
+# The hub provisions first (~90 min), then students run in sequence (~60–75 min each).
 
+# Step D — After the run completes, update hub_rhacm_url in each student-NN.yml:
+#   The correct URL is in ~/agnosticd-v2-output/hub-capacity/provision-user-data.yaml
+HUB_RHACM=$(grep "^hub_rhacm_url:" \
+  ~/agnosticd-v2-output/hub-capacity/provision-user-data.yaml | awk '{print $2}')
+echo "Paste this into each student-NN.yml: $HUB_RHACM"
+#   Then edit ~/agnosticd-v2-vars/student-{01,02,03}.yml and replace the placeholder line.
+
+# Step E — Re-run to apply the corrected URL to all student clusters (hub is skipped):
+bash scripts/deploy-workshop.sh --account sandbox<N> --skip-hub
+```
+
+> **Why update hub_rhacm_url after the initial run?** The `hub_rhacm_url` in each student var file pre-populates the Module 5 RHACM console link in the AgnosticD provision output. It cannot be filled in before the hub exists. The Showroom lab guide itself always uses the correct URL (injected by `deploy-multiuser-showroom.sh` from the actual hub output), so student clusters are fully functional after Step C — Step E just ensures the `agnosticd_user_info` log output is also correct.
+
+```bash
 # Re-run safely after a failure (already-healthy clusters are skipped):
 bash scripts/deploy-workshop.sh --account sandbox<N>
-
-# Hub already done — provision students only:
-bash scripts/deploy-workshop.sh --account sandbox<N> --skip-hub
 
 # Skip the Showroom deployment step (e.g. already done):
 bash scripts/deploy-workshop.sh --account sandbox<N> --skip-showroom
