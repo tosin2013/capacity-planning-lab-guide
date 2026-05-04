@@ -1,0 +1,434 @@
+#!/usr/bin/env bash
+# deploy-workshop.sh
+# ============================================================
+# Idempotent provisioning script for the Capacity Planning
+# Workshop hub-student topology.
+#
+# Safe to re-run: clusters whose provision-user-data.yaml
+# already contains the OCP marker field are skipped.
+#
+# Usage:
+#   bash scripts/deploy-workshop.sh [OPTIONS]
+#
+# Options:
+#   --account   ACCOUNT      AgnosticD account name (default: sandbox3967)
+#   --hub-guid  GUID         Hub GUID              (default: hub-capacity)
+#   --students  "01 02 03"   Space-separated slots (default: "01 02 03")
+#   --skip-hub               Skip hub provision entirely
+#   --dry-run                Print agd commands without executing them
+#   -h, --help               Show this help
+#
+# Examples:
+#   # Full deploy — hub + 3 students
+#   bash scripts/deploy-workshop.sh --account sandbox3967
+#
+#   # Re-run after quota increase (hub already done, fix students only)
+#   bash scripts/deploy-workshop.sh --account sandbox3967 --skip-hub
+#
+#   # Preview what would run without actually running it
+#   bash scripts/deploy-workshop.sh --account sandbox3967 --dry-run
+# ============================================================
+
+set -euo pipefail
+
+# ── Defaults ─────────────────────────────────────────────────
+ACCOUNT="${ACCOUNT:-sandbox3967}"
+HUB_GUID="${HUB_GUID:-hub-capacity}"
+STUDENT_SLOTS="${STUDENT_SLOTS:-01 02 03}"
+SKIP_HUB=false
+DRY_RUN=false
+
+AGD_DIR="${HOME}/agnosticd-v2"
+OUTPUT_ROOT="${HOME}/agnosticd-v2-output"
+MAIN_LOG="/tmp/deploy-workshop.log"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ── Helpers ───────────────────────────────────────────────────
+log() {
+  local msg="[$(date '+%Y-%m-%d %H:%M:%S UTC')] $*"
+  echo "${msg}"
+  echo "${msg}" >> "${MAIN_LOG}"
+}
+
+log_section() {
+  log "====== $* ======"
+}
+
+die() {
+  log "ERROR: $*"
+  exit 1
+}
+
+# Check if a cluster output dir has the success marker field
+is_provisioned() {
+  local guid="$1"
+  local marker="$2"
+  grep -q "^${marker}:" \
+    "${OUTPUT_ROOT}/${guid}/provision-user-data.yaml" 2>/dev/null
+}
+
+# Run agd provision (or print if --dry-run)
+run_provision() {
+  local guid="$1"
+  local config="$2"
+  local cluster_log="/tmp/deploy-${guid}.log"
+
+  log "Provisioning ${guid} (config: ${config}) — log: ${cluster_log}"
+
+  if [[ "${DRY_RUN}" == true ]]; then
+    log "[DRY-RUN] cd ${AGD_DIR} && bin/agd provision --guid ${guid} --config ${config} --account ${ACCOUNT}"
+    return 0
+  fi
+
+  (cd "${AGD_DIR}" && bin/agd provision \
+    --guid "${guid}" \
+    --config "${config}" \
+    --account "${ACCOUNT}") \
+    2>&1 | tee -a "${cluster_log}" | tee -a "${MAIN_LOG}"
+
+  return "${PIPESTATUS[0]}"
+}
+
+# ── Argument parsing ──────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --account)   ACCOUNT="$2";      shift 2 ;;
+    --hub-guid)  HUB_GUID="$2";     shift 2 ;;
+    --students)  STUDENT_SLOTS="$2"; shift 2 ;;
+    --skip-hub)  SKIP_HUB=true;     shift ;;
+    --dry-run)   DRY_RUN=true;      shift ;;
+    -h|--help)
+      sed -n '3,25p' "${BASH_SOURCE[0]}"
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1. Run with --help for usage."
+      ;;
+  esac
+done
+
+# ── Pre-flight checks ─────────────────────────────────────────
+log_section "Pre-flight checks"
+
+# 1. agnosticd-v2 directory
+[[ -x "${AGD_DIR}/bin/agd" ]] \
+  || die "agd not found at ${AGD_DIR}/bin/agd. Clone agnosticd-v2 first."
+
+# 2. AWS credentials
+aws sts get-caller-identity --output text > /dev/null 2>&1 \
+  || die "AWS credentials invalid or not configured. Check ~/.aws/credentials."
+log "AWS credentials: OK"
+
+# 3. Secrets file
+SECRETS_FILE="${HOME}/agnosticd-v2-secrets/secrets-${ACCOUNT}.yml"
+[[ -f "${SECRETS_FILE}" ]] \
+  || die "Secrets file not found: ${SECRETS_FILE}"
+log "Secrets file: ${SECRETS_FILE} — OK"
+
+# 4. VPC quota check
+# Each cluster needs 2 VPCs (bastion + OCP); calculate required minimum
+STUDENT_COUNT=$(echo "${STUDENT_SLOTS}" | wc -w | tr -d ' ')
+CLUSTERS=$(( 1 + STUDENT_COUNT ))
+REQUIRED_VPCS=$(( CLUSTERS * 2 ))
+
+CURRENT_VPC_QUOTA=$(aws service-quotas get-service-quota \
+  --region us-east-2 \
+  --service-code vpc \
+  --quota-code L-F678F1CE \
+  --query 'Quota.Value' \
+  --output text 2>/dev/null || echo "0")
+
+CURRENT_VPC_QUOTA="${CURRENT_VPC_QUOTA%.*}"  # strip decimal
+
+if (( CURRENT_VPC_QUOTA < REQUIRED_VPCS )); then
+  log "ERROR: VPC quota is ${CURRENT_VPC_QUOTA}, but ${REQUIRED_VPCS} are needed"
+  log "       for ${CLUSTERS} clusters (hub + ${STUDENT_COUNT} students)."
+  log ""
+  log "Request a quota increase to at least ${REQUIRED_VPCS} via AWS CLI:"
+  log "  aws service-quotas request-service-quota-increase \\"
+  log "    --region us-east-2 --service-code vpc --quota-code L-F678F1CE \\"
+  log "    --desired-value ${REQUIRED_VPCS}"
+  log ""
+  log "Also increase EC2-VPC Elastic IPs (need ${REQUIRED_VPCS} × 2 = $(( REQUIRED_VPCS * 2 ))):"
+  log "  aws service-quotas request-service-quota-increase \\"
+  log "    --region us-east-2 --service-code ec2 --quota-code L-0263D0A3 \\"
+  log "    --desired-value $(( REQUIRED_VPCS * 2 ))"
+  exit 1
+fi
+log "VPC quota: ${CURRENT_VPC_QUOTA} (need ${REQUIRED_VPCS}) — OK"
+
+# 5. Vars files exist for every cluster we intend to provision
+if [[ "${SKIP_HUB}" == false ]]; then
+  HUB_VARS="${HOME}/agnosticd-v2-vars/hub-aws.yml"
+  [[ -f "${HUB_VARS}" ]] || die "Hub vars file not found: ${HUB_VARS}"
+fi
+
+for SLOT in ${STUDENT_SLOTS}; do
+  SVARS="${HOME}/agnosticd-v2-vars/student-${SLOT}.yml"
+  [[ -f "${SVARS}" ]] || die "Student vars file not found: ${SVARS}"
+done
+log "Vars files: all present — OK"
+
+log "Pre-flight passed. DRY_RUN=${DRY_RUN}"
+log ""
+
+# ── Hub provisioning ──────────────────────────────────────────
+log_section "Hub cluster (${HUB_GUID})"
+
+if [[ "${SKIP_HUB}" == true ]]; then
+  log "Hub: --skip-hub flag set, skipping."
+elif is_provisioned "${HUB_GUID}" "hub_api_url"; then
+  log "Hub: already provisioned (hub_api_url found). Skipping."
+else
+  log "Hub: provisioning now (90–120 min expected)..."
+  if run_provision "${HUB_GUID}" "hub-aws"; then
+    log "Hub: provision complete."
+  else
+    die "Hub provision failed. Check /tmp/deploy-${HUB_GUID}.log for details."
+  fi
+fi
+
+# ── Student provisioning ──────────────────────────────────────
+FAILED_STUDENTS=()
+
+for SLOT in ${STUDENT_SLOTS}; do
+  SGUID="student-${SLOT}"
+  log_section "Student cluster (${SGUID})"
+
+  if is_provisioned "${SGUID}" "openshift_console_url"; then
+    log "${SGUID}: already provisioned (openshift_console_url found). Skipping."
+    continue
+  fi
+
+  log "${SGUID}: provisioning now (60–75 min expected)..."
+  if run_provision "${SGUID}" "student-${SLOT}"; then
+    log "${SGUID}: provision complete."
+  else
+    log "WARNING: ${SGUID} provision failed (exit $?). Check /tmp/deploy-${SGUID}.log."
+    FAILED_STUDENTS+=("${SGUID}")
+  fi
+done
+
+# ── Post-provision: verify sample-apps ArgoCD sync ───────────
+# Ensures the capacity-planning-workshop-sample-apps Application on each
+# student cluster has synced and all deployments are healthy.  The Helm
+# chart now sets automated.selfHeal=false so ArgoCD auto-deploys on first
+# provision but never reverts student exercise changes.  This step is a
+# safety net for environments where the chart is still at the old revision
+# (no automated sync) or where the first sync hasn't completed yet.
+log_section "Verifying sample-apps ArgoCD sync on all student clusters"
+
+for SLOT in ${STUDENT_SLOTS}; do
+  SGUID="student-${SLOT}"
+  SKC="${OUTPUT_ROOT}/${SGUID}/openshift-cluster_${SGUID}_kubeconfig"
+
+  if [[ ! -f "${SKC}" ]]; then
+    log "${SGUID}: kubeconfig not found — skipping ArgoCD check"
+    continue
+  fi
+
+  APP="capacity-planning-workshop-sample-apps"
+  NS_GITOPS="openshift-gitops"
+
+  # Ensure the Application has automated sync (idempotent patch)
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    log "${SGUID}: [dry-run] would patch ${APP} to add automated sync"
+    continue
+  fi
+
+  log "${SGUID}: ensuring ${APP} has automated sync policy..."
+  oc patch application "${APP}" -n "${NS_GITOPS}" \
+    --kubeconfig "${SKC}" \
+    --type merge \
+    -p '{"spec":{"syncPolicy":{"automated":{"prune":false,"selfHeal":false},"syncOptions":["CreateNamespace=true"]}}}' \
+    2>/dev/null || log "  WARNING: could not patch ${APP} on ${SGUID}"
+
+  # Trigger a hard refresh so ArgoCD re-evaluates immediately
+  oc annotate application "${APP}" -n "${NS_GITOPS}" \
+    --kubeconfig "${SKC}" \
+    argocd.argoproj.io/refresh=hard --overwrite \
+    2>/dev/null || true
+
+  # Wait up to 3 minutes for the Application to become Healthy
+  log "${SGUID}: waiting for ${APP} to become Healthy (up to 3 min)..."
+  DEADLINE=$(( $(date +%s) + 180 ))
+  HEALTH=""
+  while [[ $(date +%s) -lt ${DEADLINE} ]]; do
+    HEALTH=$(oc get application "${APP}" -n "${NS_GITOPS}" \
+      --kubeconfig "${SKC}" \
+      -o jsonpath='{.status.health.status}' 2>/dev/null || echo "")
+    [[ "${HEALTH}" == "Healthy" ]] && break
+    sleep 10
+  done
+
+  if [[ "${HEALTH}" == "Healthy" ]]; then
+    log "${SGUID}: ${APP} is Healthy ✓"
+  else
+    log "WARNING: ${SGUID}: ${APP} health=${HEALTH:-unknown} after timeout."
+    log "         Run: oc get application ${APP} -n ${NS_GITOPS} --kubeconfig ${SKC}"
+    FAILED_STUDENTS+=("${SGUID}-argocd")
+  fi
+done
+
+# ── Post-provision: RHACM import ─────────────────────────────
+# Imports each student cluster as a ManagedCluster on the hub so that
+# RHACM Observability can collect metrics and populate Grafana dashboards.
+# This is idempotent: already-joined clusters are detected and skipped.
+log_section "Importing student clusters into RHACM"
+
+HKC="${OUTPUT_ROOT}/${HUB_GUID}/openshift-cluster_${HUB_GUID}_kubeconfig"
+
+if [[ ! -f "${HKC}" ]]; then
+  log "WARNING: hub kubeconfig not found (${HKC}) — skipping RHACM import"
+else
+  for SLOT in ${STUDENT_SLOTS}; do
+    SGUID="student-${SLOT}"
+    SKC="${OUTPUT_ROOT}/${SGUID}/openshift-cluster_${SGUID}_kubeconfig"
+
+    if [[ ! -f "${SKC}" ]]; then
+      log "${SGUID}: kubeconfig missing — skipping RHACM import"
+      continue
+    fi
+
+    JOINED=$(oc get managedcluster "${SGUID}" \
+      --kubeconfig "${HKC}" \
+      -o jsonpath='{.status.conditions[?(@.type=="ManagedClusterConditionAvailable")].status}' \
+      2>/dev/null || true)
+
+    if [[ "${JOINED}" == "True" ]]; then
+      log "${SGUID}: already joined RHACM ✓"
+      continue
+    fi
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+      log "${SGUID}: [dry-run] would create ManagedCluster and apply import YAML"
+      continue
+    fi
+
+    log "${SGUID}: creating ManagedCluster on hub..."
+    oc apply -f - --kubeconfig "${HKC}" 2>/dev/null <<YAML
+apiVersion: cluster.open-cluster-management.io/v1
+kind: ManagedCluster
+metadata:
+  name: ${SGUID}
+  labels:
+    cloud: Amazon
+    vendor: OpenShift
+    demo.redhat.com/application: capacity-workshop
+spec:
+  hubAcceptsClient: true
+  leaseDurationSeconds: 60
+YAML
+
+    # Wait up to 60s for RHACM to auto-create the cluster namespace
+    NS_READY=false
+    for i in {1..12}; do
+      NS=$(oc get namespace "${SGUID}" --kubeconfig "${HKC}" \
+        -o jsonpath='{.status.phase}' 2>/dev/null || true)
+      [[ "${NS}" == "Active" ]] && NS_READY=true && break
+      sleep 5
+    done
+
+    if [[ "${NS_READY}" != "true" ]]; then
+      log "WARNING: ${SGUID}: namespace not Active after 60s — skipping addon config"
+      FAILED_STUDENTS+=("${SGUID}-rhacm-ns")
+      continue
+    fi
+
+    oc apply -f - --kubeconfig "${HKC}" 2>/dev/null <<YAML
+apiVersion: agent.open-cluster-management.io/v1
+kind: KlusterletAddonConfig
+metadata:
+  name: ${SGUID}
+  namespace: ${SGUID}
+spec:
+  clusterName: ${SGUID}
+  clusterNamespace: ${SGUID}
+  clusterLabels:
+    cloud: Amazon
+    vendor: OpenShift
+  applicationManager:
+    enabled: false
+  certPolicyController:
+    enabled: false
+  iamPolicyController:
+    enabled: false
+  policyController:
+    enabled: false
+  searchCollector:
+    enabled: false
+  observabilityController:
+    enabled: true
+YAML
+
+    # Wait up to 90s for the import secret
+    IMPORT_SECRET=""
+    for i in {1..18}; do
+      IMPORT_SECRET=$(oc get secret "${SGUID}-import" -n "${SGUID}" \
+        --kubeconfig "${HKC}" \
+        -o jsonpath='{.data.import\.yaml}' 2>/dev/null || true)
+      [[ -n "${IMPORT_SECRET}" ]] && break
+      sleep 5
+    done
+
+    if [[ -z "${IMPORT_SECRET}" ]]; then
+      log "WARNING: ${SGUID}: import secret not ready after 90s"
+      FAILED_STUDENTS+=("${SGUID}-rhacm-secret")
+      continue
+    fi
+
+    # Apply CRDs then import to student cluster
+    CRDS_B64=$(oc get secret "${SGUID}-import" -n "${SGUID}" \
+      --kubeconfig "${HKC}" \
+      -o jsonpath='{.data.crds\.yaml}' 2>/dev/null || true)
+
+    [[ -n "${CRDS_B64}" ]] && \
+      echo "${CRDS_B64}" | base64 -d | oc apply -f - --kubeconfig "${SKC}" 2>/dev/null || true
+
+    sleep 5
+
+    echo "${IMPORT_SECRET}" | base64 -d | oc apply -f - --kubeconfig "${SKC}" 2>/dev/null || true
+
+    log "${SGUID}: import applied — waiting for cluster to join (up to 3 min)..."
+    DEADLINE=$(( $(date +%s) + 180 ))
+    AVAIL=""
+    while [[ $(date +%s) -lt ${DEADLINE} ]]; do
+      AVAIL=$(oc get managedcluster "${SGUID}" \
+        --kubeconfig "${HKC}" \
+        -o jsonpath='{.status.conditions[?(@.type=="ManagedClusterConditionAvailable")].status}' \
+        2>/dev/null || true)
+      [[ "${AVAIL}" == "True" ]] && break
+      sleep 10
+    done
+
+    if [[ "${AVAIL}" == "True" ]]; then
+      log "${SGUID}: joined RHACM ✓"
+    else
+      log "WARNING: ${SGUID}: not Available after timeout — may need manual re-import"
+      FAILED_STUDENTS+=("${SGUID}-rhacm-join")
+    fi
+  done
+fi
+
+# ── Post-provision ────────────────────────────────────────────
+log_section "Generating student-info.txt"
+bash "${REPO_ROOT}/scripts/generate-student-info.sh"
+
+# ── Summary ───────────────────────────────────────────────────
+log_section "Summary"
+if [[ ${#FAILED_STUDENTS[@]} -eq 0 ]]; then
+  log "All clusters provisioned successfully."
+else
+  log "The following students failed to provision:"
+  for S in "${FAILED_STUDENTS[@]}"; do
+    log "  - ${S}  (log: /tmp/deploy-${S}.log)"
+  done
+  log ""
+  log "Re-run this script after resolving errors — already-healthy"
+  log "clusters will be skipped automatically."
+  exit 1
+fi
+
+log "student-info.txt: ${REPO_ROOT}/student-info.txt"
+log "Full log: ${MAIN_LOG}"

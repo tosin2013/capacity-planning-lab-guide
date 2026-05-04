@@ -1,0 +1,296 @@
+---
+# =============================================================================
+# ocp4_workload_grafana_student_access — POST-DEPLOY REPAIR WORKLOAD
+#
+# Purpose: Re-apply and verify Grafana student access RBAC on an already-
+# provisioned hub cluster when the bindings have been lost or are out of sync.
+#
+# This is NOT the primary provisioning path. The initial provisioning is handled
+# by ocp4_workload_capacity_planning_workshop (hub_mode: true) in the
+# agnosticd-v2 fork at roles_ocp_workloads/. Run this role when:
+#
+#   - Students see "403 Forbidden" at the Grafana route
+#   - Grafana dashboards show "No data" for all student users
+#   - Per-student ClusterRoleBindings were accidentally deleted
+#   - A student cluster was added to RHACM after hub provisioning and needs
+#     the per-cluster-namespace RoleBinding wired in
+#
+# Two-layer RBAC model (from RHACM 2.11+ observability access control docs):
+#
+#   Layer 1 — oauth-proxy SAR gate:
+#     User must be able to LIST projects cluster-wide.
+#     ClusterRole: open-cluster-management:view-aggregate
+#     Without this: HTTP 403 before Grafana is reached.
+#
+#   Layer 2 — rbac-query-proxy cluster filter:
+#     User must have namespace-scoped 'view' in each managed cluster's namespace
+#     (e.g. namespace 'student-01' on the hub).  Without this the proxy injects
+#     cluster=~"()" into all PromQL queries → "No data" in every dashboard panel.
+#
+# Ref: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.11/html/access_control/access-control#observability-RBAC
+# =============================================================================
+
+- name: "Repair | Verify hub cluster connectivity"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ ocp4_workload_grafana_student_access_observability_namespace }}"
+  register: r_ns_check
+  failed_when: r_ns_check.resources | length == 0
+
+- name: "Repair | Build student username list"
+  ansible.builtin.set_fact:
+    _ocp4_grafana_student_users: >-
+      {{ range(1, ocp4_workload_grafana_student_access_student_count + 1)
+         | map('string')
+         | map('regex_replace', '^',
+             ocp4_workload_grafana_student_access_student_prefix ~ '-')
+         | list }}
+
+- name: "Repair | Show students being repaired"
+  ansible.builtin.debug:
+    msg: "Re-applying RBAC for: {{ _ocp4_grafana_student_users }}"
+
+# ---------------------------------------------------------------------------
+# Layer 1 — oauth-proxy SAR gate: ClusterRoleBinding → open-cluster-management:view-aggregate
+# ---------------------------------------------------------------------------
+
+- name: "Repair | Re-apply Layer 1 CRB (oauth-proxy gate) for each student"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "workshop-grafana-view-{{ item }}"
+        labels:
+          demo.redhat.com/application: capacity-workshop
+          app.kubernetes.io/managed-by: ocp4_workload_grafana_student_access
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: open-cluster-management:view-aggregate
+      subjects:
+        - kind: User
+          apiGroup: rbac.authorization.k8s.io
+          name: "{{ item }}"
+  loop: "{{ _ocp4_grafana_student_users }}"
+
+# ---------------------------------------------------------------------------
+# workshop-managedcluster-view ClusterRole (idempotent re-apply)
+# ---------------------------------------------------------------------------
+
+- name: "Repair | Ensure workshop-managedcluster-view ClusterRole exists"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: workshop-managedcluster-view
+        labels:
+          demo.redhat.com/application: capacity-workshop
+      rules:
+        - apiGroups:
+            - cluster.open-cluster-management.io
+          resources:
+            - managedclusters
+          verbs:
+            - get
+            - list
+            - watch
+
+- name: "Repair | Re-apply workshop-managedcluster-view CRB for each student"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "workshop-mcluster-view-{{ item }}"
+        labels:
+          demo.redhat.com/application: capacity-workshop
+          app.kubernetes.io/managed-by: ocp4_workload_grafana_student_access
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: workshop-managedcluster-view
+      subjects:
+        - kind: User
+          apiGroup: rbac.authorization.k8s.io
+          name: "{{ item }}"
+  loop: "{{ _ocp4_grafana_student_users }}"
+
+# ---------------------------------------------------------------------------
+# Grafana ServiceAccount RBAC (fixes "No data" when user token isn't forwarded)
+# ---------------------------------------------------------------------------
+
+- name: "Repair | Re-apply Grafana SA → open-cluster-management:view-aggregate"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: workshop-grafana-sa-view-aggregate
+        labels:
+          demo.redhat.com/application: capacity-workshop
+          app.kubernetes.io/managed-by: ocp4_workload_grafana_student_access
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: open-cluster-management:view-aggregate
+      subjects:
+        - kind: ServiceAccount
+          name: grafana
+          namespace: "{{ ocp4_workload_grafana_student_access_observability_namespace }}"
+
+- name: "Repair | Re-apply Grafana SA → workshop-managedcluster-view"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: workshop-grafana-sa-managedcluster-view
+        labels:
+          demo.redhat.com/application: capacity-workshop
+          app.kubernetes.io/managed-by: ocp4_workload_grafana_student_access
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: workshop-managedcluster-view
+      subjects:
+        - kind: ServiceAccount
+          name: grafana
+          namespace: "{{ ocp4_workload_grafana_student_access_observability_namespace }}"
+
+# ---------------------------------------------------------------------------
+# Layer 2 — rbac-query-proxy filter: namespace-scoped RoleBindings per managed cluster
+# ---------------------------------------------------------------------------
+
+- name: "Repair | Discover all managed cluster namespaces on hub"
+  kubernetes.core.k8s_info:
+    api_version: cluster.open-cluster-management.io/v1
+    kind: ManagedCluster
+  register: r_managed_clusters
+
+- name: "Repair | Show managed clusters found"
+  ansible.builtin.debug:
+    msg: >-
+      Found {{ r_managed_clusters.resources | length }} managed cluster(s):
+      {{ r_managed_clusters.resources | map(attribute='metadata.name') | list }}
+
+- name: "Repair | Re-apply Layer 2 RoleBinding (query-proxy filter) per cluster namespace"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: "workshop-obs-view-{{ item.1 }}"
+        namespace: "{{ item.0 }}"
+        labels:
+          demo.redhat.com/application: capacity-workshop
+          app.kubernetes.io/managed-by: ocp4_workload_grafana_student_access
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: view
+      subjects:
+        - kind: User
+          apiGroup: rbac.authorization.k8s.io
+          name: "{{ item.1 }}"
+  vars:
+    _cluster_namespaces: >-
+      {{ r_managed_clusters.resources
+         | map(attribute='metadata.name')
+         | list }}
+  loop: "{{ _cluster_namespaces | product(_ocp4_grafana_student_users) | list }}"
+  loop_control:
+    label: "{{ item.0 }}/{{ item.1 }}"
+
+# ---------------------------------------------------------------------------
+# Restart Grafana to clear any cached SAR state
+# ---------------------------------------------------------------------------
+
+- name: "Repair | Restart observability-grafana Deployment to clear token cache"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: observability-grafana
+        namespace: "{{ ocp4_workload_grafana_student_access_observability_namespace }}"
+        annotations:
+          kubectl.kubernetes.io/restartedAt: "{{ ansible_date_time.iso8601 }}"
+  when: ocp4_workload_grafana_student_access_restart_grafana | bool
+
+- name: "Repair | Wait for Grafana rollout to complete"
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: observability-grafana
+    namespace: "{{ ocp4_workload_grafana_student_access_observability_namespace }}"
+  register: r_grafana_rollout
+  retries: 18
+  delay: 10
+  until:
+    - r_grafana_rollout.resources | length > 0
+    - r_grafana_rollout.resources[0].status.availableReplicas | default(0) | int >= 1
+  when: ocp4_workload_grafana_student_access_restart_grafana | bool
+
+# ---------------------------------------------------------------------------
+# Verification — confirm RBAC is correct before handing back to the operator
+# ---------------------------------------------------------------------------
+
+- name: "Verify | Layer 1 — student can list projects (oauth-proxy SAR gate)"
+  ansible.builtin.command: >-
+    oc auth can-i list projects
+    --as={{ ocp4_workload_grafana_student_access_student_prefix }}-1
+  register: r_layer1_check
+  changed_when: false
+  failed_when: r_layer1_check.rc != 0 or r_layer1_check.stdout | trim != 'yes'
+
+- name: "Verify | Student does NOT have cluster-admin or broad node access"
+  ansible.builtin.command: >-
+    oc auth can-i delete nodes
+    --as={{ ocp4_workload_grafana_student_access_student_prefix }}-1
+  register: r_priv_check
+  changed_when: false
+  failed_when: r_priv_check.stdout | trim == 'yes'
+
+- name: "Verify | Grafana SA can list managed clusters"
+  ansible.builtin.command: >-
+    oc auth can-i list managedclusters
+    --as=system:serviceaccount:{{ ocp4_workload_grafana_student_access_observability_namespace }}:grafana
+  register: r_sa_check
+  changed_when: false
+  failed_when: r_sa_check.rc != 0 or r_sa_check.stdout | trim != 'yes'
+
+- name: "Verify | Report repair results"
+  ansible.builtin.debug:
+    msg: |
+      ============================================================
+      Grafana access repair complete
+      ============================================================
+      Students repaired  : {{ _ocp4_grafana_student_users | join(', ') }}
+      Managed clusters   : {{ r_managed_clusters.resources | map(attribute='metadata.name') | list | join(', ') }}
+
+      Checks:
+        Layer 1 (oauth-proxy SAR — list projects): {{ r_layer1_check.stdout | trim }}
+        Layer 2 (rbac-query-proxy — per-cluster RoleBindings): applied
+        Elevated access blocked (delete nodes):    {{ r_priv_check.stdout | trim }}
+        Grafana SA list managedclusters:           {{ r_sa_check.stdout | trim }}
+
+      If students still see "No data":
+        1. Confirm student clusters are imported: oc get managedclusters
+        2. Wait 2–5 min for the rbac-query-proxy to pick up new bindings
+        3. Ask students to hard-refresh their Grafana browser tab
+
+      If students see "403 Forbidden" at the Grafana route:
+        1. Confirm the workshop-students IDP is configured: oc get oauth cluster -o yaml
+        2. Confirm HTPasswd Secret exists: oc get secret workshop-students-htpasswd -n openshift-config
+        3. Re-run full hub provisioning if the IDP is missing
+      ============================================================

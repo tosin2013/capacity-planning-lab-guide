@@ -1,0 +1,15 @@
+---
+# Number of workshop students whose RBAC will be repaired (user-1 … user-N).
+# Must match ocp4_workload_capacity_planning_workshop_max_users on the hub.
+ocp4_workload_grafana_student_access_student_count: 8
+
+# Username prefix. The existing hub workload creates users named <prefix>-<N>
+# (e.g. user-1, user-2).  This default matches that convention.
+ocp4_workload_grafana_student_access_student_prefix: "user"
+
+# Namespace where RHACM observability components run
+ocp4_workload_grafana_student_access_observability_namespace: "open-cluster-management-observability"
+
+# Set to true to restart the observability-grafana Deployment after re-applying
+# RBAC, clearing any cached token state that causes "No data".
+ocp4_workload_grafana_student_access_restart_grafana: true

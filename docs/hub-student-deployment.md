@@ -4,6 +4,31 @@ Operator reference for deploying the Strategic Capacity Planning workshop on Red
 
 ---
 
+## Quick Start
+
+Use the idempotent deploy script for all provisioning. It handles pre-flight quota checks, skips clusters that are already healthy, and regenerates `student-info.txt` at the end.
+
+```bash
+# Full deploy — hub + 3 students
+cd ~/capacity-planning-lab-guide
+bash scripts/deploy-workshop.sh --account sandbox<N>
+
+# Re-run safely after a failure (already-healthy clusters are skipped)
+bash scripts/deploy-workshop.sh --account sandbox<N>
+
+# Hub already done — provision students only
+bash scripts/deploy-workshop.sh --account sandbox<N> --skip-hub
+
+# Preview what would run without executing
+bash scripts/deploy-workshop.sh --account sandbox<N> --dry-run
+```
+
+Access information for all clusters is written to `student-info.txt` (gitignored) after each run.
+
+The manual step-by-step instructions below remain useful for understanding the topology or performing individual operations.
+
+---
+
 ## Architecture
 
 ```
@@ -110,6 +135,58 @@ When complete, check `~/agnosticd-v2-output/hub-capacity/provision-user-data.yam
 | `hub_dev_grafana_url` | Interactive Grafana (dev) |
 | `lab_ui_url` | Showroom lab guide URL |
 | `hub_password` | kubeadmin password |
+
+---
+
+## Step 2.5 — Verify (and Repair) Grafana Student Access
+
+The hub workload provisions Grafana student access automatically. Run this verification immediately after the hub provision completes to confirm both RBAC layers are in place before provisioning student clusters.
+
+### What was provisioned by the hub workload
+
+The `ocp4_workload_capacity_planning_workshop` workload (`hub_mode: true`) creates:
+
+| Resource | Purpose |
+|----------|---------|
+| HTPasswd Secret + OAuth IDP (`workshop-students`) | Lets students log in to Grafana via OpenShift OAuth |
+| `ClusterRoleBinding/workshop-grafana-view-<user>` per student | **Layer 1**: Satisfies the oauth-proxy SubjectAccessReview (list projects) |
+| `ClusterRoleBinding/workshop-mcluster-view-<user>` per student | Allows rbac-query-proxy to resolve managed cluster names |
+| `ClusterRoleBinding/workshop-grafana-sa-*` | Fixes "No data" when the user token is not forwarded to the proxy |
+| `RoleBinding/workshop-obs-view-<user>` in each cluster namespace | **Layer 2**: rbac-query-proxy filter — without this, `cluster=~"()"` is injected and panels show "No data" |
+
+`viewers_can_edit=true` is intentional — students create and save dashboards during Modules 2 and 5.
+
+### Quick verification
+
+```bash
+export HKC=~/agnosticd-v2-output/hub-capacity/openshift-cluster_hub-capacity_kubeconfig
+
+# Layer 1 — user-1 must pass the oauth-proxy SAR gate
+oc --kubeconfig="${HKC}" auth can-i list projects --as=user-1
+# Expected: yes
+
+# Layer 2 — Grafana SA must resolve managed cluster names
+oc --kubeconfig="${HKC}" auth can-i list managedclusters \
+  --as=system:serviceaccount:open-cluster-management-observability:grafana
+# Expected: yes
+```
+
+### If either check fails — run the repair script
+
+```bash
+cd ~/capacity-planning-lab-guide
+bash scripts/provision-grafana-student-access.sh \
+  --count 8 \
+  --hub-kubeconfig "${HKC}"
+```
+
+The script accepts `--dry-run` to preview changes and `--verify-only` to re-run checks without applying RBAC.
+
+When a student cluster is added to RHACM **after** hub provisioning, re-run the repair script to create the Layer 2 RoleBindings in the new cluster's namespace:
+
+```bash
+bash scripts/provision-grafana-student-access.sh --count 8 --hub-kubeconfig "${HKC}"
+```
 
 ---
 
@@ -321,6 +398,9 @@ After both clusters provision, verify:
 
 - [ ] Hub Showroom loads: `https://showroom-showroom-<guid>.apps.hub.<guid>.<domain>/`
 - [ ] Hub RHACM console loads and shows 0 clusters initially
+- [ ] Grafana Layer 1: `oc auth can-i list projects --as=user-1` returns `yes`
+- [ ] Grafana Layer 2: `oc auth can-i list managedclusters --as=system:serviceaccount:open-cluster-management-observability:grafana` returns `yes`
+- [ ] User1 can log into Grafana with `workshop-students` IDP and see dashboards (Module 2/5 prerequisite)
 - [ ] Student ArgoCD app `capacity-planning-workshop` is **Healthy + Synced**
 - [ ] Student sample apps Deployments are all Available: `oc get deploy -n capacity-workshop`
 - [ ] Student can SSH to bastion using credentials from `provision-user-info.yaml`
@@ -339,3 +419,6 @@ After both clusters provision, verify:
 | Console/API unreachable after `agd start` | DNS propagation delay | Wait 10–15 min for EIP re-association |
 | ArgoCD Application shows `OutOfSync` | Git repo unreachable from cluster | Check egress and DNS from student cluster |
 | `besteffort-app` / `critical-app` never start (`FailedCreate`) | ResourceQuota blocks pods without resource specs | Apply workaround in "besteffort-app and critical-app FailedCreate" section above; upstream fix in PR #2 |
+| Students see 403 at Grafana route | Layer 1 ClusterRoleBindings missing | Run `bash scripts/provision-grafana-student-access.sh --count 8 --hub-kubeconfig <HKC>` |
+| Grafana dashboards show "No data" for all users | Layer 2 per-cluster RoleBindings missing or Grafana SA RBAC removed | Run repair script; confirm clusters are imported with `oc get managedclusters` |
+| "No data" only for clusters added after hub provision | Layer 2 RoleBindings not yet in new cluster namespace | Re-run repair script after cluster import |

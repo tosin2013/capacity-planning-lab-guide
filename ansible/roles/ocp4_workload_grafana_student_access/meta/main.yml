@@ -1,0 +1,24 @@
+---
+galaxy_info:
+  role_name: ocp4_workload_grafana_student_access
+  author: capacity-workshop
+  description: >
+    Provisions workshop student accounts with view-only access to the RHACM
+    Observability Grafana instance on an OpenShift 4.21 hub cluster.
+    Creates an HTPasswd identity provider, an OpenShift Group, a namespace-scoped
+    RoleBinding that satisfies the oauth-proxy SubjectAccessReview, and optionally
+    disables the viewers_can_edit flag via a Grafana configuration Secret.
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+  platforms:
+    - name: OpenShift
+      versions:
+        - "4.21"
+  galaxy_tags:
+    - openshift
+    - rhacm
+    - grafana
+    - observability
+    - workshop
+
+dependencies: []

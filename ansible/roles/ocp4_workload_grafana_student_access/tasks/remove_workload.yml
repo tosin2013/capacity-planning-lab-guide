@@ -1,0 +1,39 @@
+---
+- name: "Remove | Build student username list"
+  ansible.builtin.set_fact:
+    _ocp4_grafana_student_users: >-
+      {{ range(1, ocp4_workload_grafana_student_access_student_count + 1)
+         | map('string')
+         | map('regex_replace', '^',
+             ocp4_workload_grafana_student_access_student_prefix ~ '-')
+         | list }}
+
+- name: "Remove | Delete per-student Layer 1 ClusterRoleBindings"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    name: "workshop-grafana-view-{{ item }}"
+  loop: "{{ _ocp4_grafana_student_users }}"
+
+- name: "Remove | Delete per-student managedcluster-view ClusterRoleBindings"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    name: "workshop-mcluster-view-{{ item }}"
+  loop: "{{ _ocp4_grafana_student_users }}"
+
+- name: "Remove | Delete Grafana SA ClusterRoleBindings"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    name: "{{ item }}"
+  loop:
+    - workshop-grafana-sa-view-aggregate
+    - workshop-grafana-sa-managedcluster-view
+
+- name: "Remove | Completed"
+  ansible.builtin.debug:
+    msg: "Grafana student access RBAC removed for {{ _ocp4_grafana_student_users | join(', ') }}"
