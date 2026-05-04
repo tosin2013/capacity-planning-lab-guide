@@ -19,6 +19,7 @@ bash scripts/deploy-workshop.sh --account sandbox<N>
 #   ~/agnosticd-v2-vars/student-{01,02,03}.yml     replace <YOUR_EMAIL>
 #                                                  (leave hub_rhacm_url placeholder for now)
 #   ~/agnosticd-v2-secrets/secrets-sandbox<N>.yml  fill in AWS keys + base_domain
+#                                                  + ocp4_pull_secret (from console.redhat.com)
 
 # Step C — Provision hub + students in one run (~3–4 hours total):
 bash scripts/deploy-workshop.sh --account sandbox<N>
@@ -179,6 +180,7 @@ cp ~/capacity-planning-lab-guide/deploy/vars/secrets.yml.example \
 aws_access_key_id: "<ACCESS_KEY from RHDP email>"
 aws_secret_access_key: "<SECRET_KEY from RHDP email>"
 base_domain: sandbox<N>.opentlc.com
+ocp4_pull_secret: '<full JSON blob from console.redhat.com>'
 ```
 
 **Own AWS account** (replace with your Route 53 hosted zone domain):
@@ -187,7 +189,10 @@ base_domain: sandbox<N>.opentlc.com
 aws_access_key_id: "AKIA..."
 aws_secret_access_key: "..."
 base_domain: mycompany.example.com   # must be a Route 53 public hosted zone
+ocp4_pull_secret: '<full JSON blob from console.redhat.com>'
 ```
+
+> **Pull secret required.** Get yours at [console.redhat.com/openshift/install/pull-secret](https://console.redhat.com/openshift/install/pull-secret). Paste the entire JSON blob on a single line. Without it the OCP installer fails ~7 minutes into provisioning. The deploy script pre-flight check will catch a missing or placeholder value before any AWS resources are created.
 
 The `--account` value you pass to `deploy-workshop.sh` must match the filename suffix (e.g. `--account sandbox1234` → file is `secrets-sandbox1234.yml`).
 

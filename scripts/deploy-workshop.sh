@@ -201,6 +201,29 @@ SECRETS_FILE="${HOME}/agnosticd-v2-secrets/secrets-${ACCOUNT}.yml"
   || die "Secrets file not found: ${SECRETS_FILE}"
 log "Secrets file: ${SECRETS_FILE} — OK"
 
+# 4a. Pull secret check — must be present and not the placeholder value.
+#     The OCP installer will fail ~7 min in if this is wrong; catch it here.
+if ! grep -q "^ocp4_pull_secret:" "${SECRETS_FILE}"; then
+  log ""
+  log "ERROR: ocp4_pull_secret is missing from ${SECRETS_FILE}"
+  log ""
+  log "  Get your pull secret at: https://console.redhat.com/openshift/install/pull-secret"
+  log "  Then add this line to ${SECRETS_FILE}:"
+  log "    ocp4_pull_secret: '<paste full JSON here>'"
+  log ""
+  exit 1
+fi
+if grep -q "ocp4_pull_secret: '<YOUR_PULL_SECRET_JSON>'" "${SECRETS_FILE}"; then
+  log ""
+  log "ERROR: ocp4_pull_secret in ${SECRETS_FILE} is still the placeholder value."
+  log ""
+  log "  Get your pull secret at: https://console.redhat.com/openshift/install/pull-secret"
+  log "  Replace the placeholder with the full JSON blob."
+  log ""
+  exit 1
+fi
+log "Pull secret: present — OK"
+
 # 5. VPC quota check
 # Each cluster needs 2 VPCs (bastion + OCP); calculate required minimum
 CLUSTERS=$(( 1 + STUDENT_COUNT ))
