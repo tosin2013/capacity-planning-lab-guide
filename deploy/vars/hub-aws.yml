@@ -55,7 +55,7 @@ install_rhn_repositories: false
 # OpenShift Cluster Settings
 # ===================================================================
 cluster_name: hub
-host_ocp4_installer_version: "4.19"
+host_ocp4_installer_version: "4.21"
 host_ocp4_installer_root_url: https://mirror.openshift.com/pub/openshift-v4/clients
 host_ocp4_installer_set_user_data_kubeadmin_password: true
 openshift_cluster_admin_service_account_enable: true
