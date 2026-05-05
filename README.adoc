@@ -4,7 +4,7 @@ A full-day, highly interactive workshop designed to help platform engineering an
 
 == Workshop Overview
 
-This workshop teaches strategic capacity planning through 7 comprehensive modules covering:
+This workshop teaches strategic capacity planning through 8 comprehensive modules covering:
 
 * **Module 1**: The Planning Horizon & 90-Day Audit - Establish capacity baselines
 * **Module 2**: Mathematics of Forecasting - Pod Velocity Model and PromQL
@@ -13,6 +13,7 @@ This workshop teaches strategic capacity planning through 7 comprehensive module
 * **Module 5**: Fleet Observability (RHACM) - Multi-cluster dashboards and metric allowlists
 * **Module 6**: Integration Challenge - Black Friday chaos game simulation
 * **Module 7**: Strategic Roadmapping - 12-month capacity planning and executive communication
+* **Module 8**: AI-Assisted Capacity Operations with OpenShift Lightspeed
 
 **Duration**: 8 hours (full-day workshop)
 
@@ -82,7 +83,8 @@ Workshop content is located in `content/modules/ROOT/pages/`:
 ├── module-04.adoc       # Module 4: Infrastructure Track
 ├── module-05.adoc       # Module 5: Fleet Observability
 ├── module-06.adoc       # Module 6: Integration Challenge
-└── module-07.adoc       # Module 7: Strategic Roadmapping
+├── module-07.adoc       # Module 7: Strategic Roadmapping
+└── module-08.adoc       # Module 8: AI-Assisted Capacity Operations (Lightspeed)
 ----
 
 Many modern editors such as Visual Studio Code offer live AsciiDoc preview extensions.
@@ -151,7 +153,7 @@ spec:
 
 == Technology Stack
 
-- **OpenShift Container Platform**: 4.14 - 4.19+
+- **OpenShift Container Platform**: 4.14 - 4.21+
 - **Red Hat Advanced Cluster Management (RHACM)**: 2.14+
 - **Monitoring**: Prometheus, Thanos, Alertmanager, Grafana
 - **Documentation**: Antora 3.1, AsciiDoc
@@ -164,7 +166,8 @@ This workshop is maintained for use with Red Hat Demo Platform. For issues or im
 1. Fork the repository
 2. Create a feature branch
 3. Test changes locally using the container method above
-4. Submit a pull request
+4. If adding or changing `oc` commands in any module, run the release validation process described in link:docs/release-validation.md[Release Validation Guide] to confirm the commands work with the target OCP version
+5. Submit a pull request
 
 == License
 
