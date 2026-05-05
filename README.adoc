@@ -13,7 +13,7 @@ This workshop teaches strategic capacity planning through 8 comprehensive module
 * **Module 5**: Fleet Observability (RHACM) - Multi-cluster dashboards and metric allowlists
 * **Module 6**: Integration Challenge - Black Friday chaos game simulation
 * **Module 7**: Strategic Roadmapping - 12-month capacity planning and executive communication
-* **Module 8**: AI-Assisted Capacity Operations with OpenShift Lightspeed
+* **Module 8**: AI-Assisted Capacity Operations with OpenShift Lightspeed _(Optional)_
 
 **Duration**: 8 hours (full-day workshop)
 
@@ -84,7 +84,7 @@ Workshop content is located in `content/modules/ROOT/pages/`:
 ├── module-05.adoc       # Module 5: Fleet Observability
 ├── module-06.adoc       # Module 6: Integration Challenge
 ├── module-07.adoc       # Module 7: Strategic Roadmapping
-└── module-08.adoc       # Module 8: AI-Assisted Capacity Operations (Lightspeed)
+└── module-08.adoc       # Module 8: AI-Assisted Capacity Operations (Lightspeed, Optional)
 ----
 
 Many modern editors such as Visual Studio Code offer live AsciiDoc preview extensions.

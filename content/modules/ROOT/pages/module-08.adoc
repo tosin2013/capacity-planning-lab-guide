@@ -2,6 +2,14 @@
 
 _Duration: 90 minutes_
 
+[NOTE]
+.Optional Module
+====
+This module is *optional*. It requires OpenShift Lightspeed to be installed and
+configured on your cluster. If Lightspeed is not available in your environment,
+you can skip this module without affecting any other modules.
+====
+
 [#objectives]
 == Learning Objectives
 
