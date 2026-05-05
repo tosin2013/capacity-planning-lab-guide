@@ -207,7 +207,7 @@ YAML
   CLUSTER_NAMES=()
   while IFS= read -r name; do
     CLUSTER_NAMES+=("$name")
-  done < <(${OC} get managedclusters -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n')
+  done < <(${OC} get managedclusters -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n'; echo)
 
   if [[ ${#CLUSTER_NAMES[@]} -eq 0 ]]; then
     echo "WARNING: No managed clusters found. Layer 2 RoleBindings will be created"
@@ -251,10 +251,10 @@ fi
 echo ""
 echo "=== Verifying RBAC ==="
 
-LAYER1_RESULT=$(${OC} auth can-i list projects --as="${PREFIX}-1" 2>&1 || true)
+LAYER1_RESULT=$(${OC} auth can-i list projects --as="${PREFIX}-1" 2>&1 | grep -E '^yes$|^no$' || true)
 SA_RESULT=$(${OC} auth can-i list managedclusters \
-  --as="system:serviceaccount:${OBS_NS}:grafana" 2>&1 || true)
-PRIV_RESULT=$(${OC} auth can-i delete nodes --as="${PREFIX}-1" 2>&1 || true)
+  --as="system:serviceaccount:${OBS_NS}:grafana" 2>&1 | grep -E '^yes$|^no$' || true)
+PRIV_RESULT=$(${OC} auth can-i delete nodes --as="${PREFIX}-1" 2>&1 | grep -E '^yes$|^no$' || true)
 
 PASS=true
 

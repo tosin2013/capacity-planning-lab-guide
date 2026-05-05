@@ -109,16 +109,42 @@ Update `aws_region` in `hub-aws.yml` and `student.yml` if your account is not in
 
 ## AWS Quota Requirements
 
-> **RHDP sandboxes have these quotas pre-raised.** If using your own AWS account, request increases before running `agd provision`. A 3-node compact OCP cluster consumes **4 Elastic IPs per cluster** (3 NAT gateways + 1 bastion) — the default of 5 EIPs is exhausted by the hub cluster alone.
+> **RHDP sandboxes have these quotas pre-raised.** If using your own AWS account, request increases before running `agd provision`. A 3-node compact OCP cluster consumes **4 Elastic IPs per cluster** (3 control-plane nodes get EIPs + 1 bastion EIP) and **2 VPCs** (one for the OCP cluster, one for the bastion network) — the default limits of 5 EIPs and 5 VPCs are exhausted by the hub cluster alone.
 
-| Resource | Default | hub + 1 student | hub + 8 students | Per-cluster breakdown |
+### Per-student resource cost
+
+Each cluster (hub counts as 1; each student adds 1 more):
+
+| Resource per cluster | Count | Notes |
+|---|---|---|
+| VPCs | 2 | OCP network + bastion |
+| Elastic IPs | 4 | 3 control-plane nodes + 1 bastion |
+| NAT Gateways | 1 | Single-AZ compact install |
+| EC2 nodes | 3 | `m7a.2xlarge` (8 vCPU / 32 GB each) |
+
+### Required quotas by deployment size
+
+| Resource | AWS Default | hub + 4 students | hub + 10 students | hub + 20 students |
 |---|---|---|---|---|
-| Elastic IPs | 5 | **8** | **36** | 3 NAT GWs + 1 bastion |
-| VPCs | 5 | **2** | **9** | 1 per cluster |
-| NAT Gateways | 5 | **6** | **27** | 3 per cluster (one per AZ) |
-| vCPUs (m7a) | varies | **24** | **168** | 8 × m7a.2xlarge per cluster |
+| VPCs (`L-F678F1CE`) | 5 | **10** | **22** | **42** |
+| Elastic IPs (`L-0263D0A3`) | 5 | **20** | **44** | **84** |
+| NAT Gateways per AZ (`L-FE5A380F`) | 5 | **5** | **11** | **21** |
+| Standard vCPUs (`L-1216C47A`) | 32 | **120** | **264** | **504** |
+| `ocp4_workload_capacity_planning_workshop_max_users` in `hub-aws.yml` | — | **4** | **10** | **20** |
 
-Submit quota increases via the [AWS Service Quotas console](https://us-east-2.console.aws.amazon.com/servicequotas/) **before running `agd provision`**.
+> The current sandbox (`sandbox1784`) has VPCs=10, EIPs=20, NAT GWs=15 — sufficient for hub + 4 students only. To scale to 10 or 20 students, request quota increases **before** provisioning and update `max_users` in `deploy/vars/hub-aws.yml` to match.
+
+Submit quota increases via the [AWS Service Quotas console](https://us-east-2.console.aws.amazon.com/servicequotas/) or via CLI:
+
+```bash
+# Example: scale to hub + 10 students
+aws service-quotas request-service-quota-increase \
+  --region us-east-2 --service-code vpc --quota-code L-F678F1CE --desired-value 22
+aws service-quotas request-service-quota-increase \
+  --region us-east-2 --service-code ec2 --quota-code L-0263D0A3 --desired-value 44
+aws service-quotas request-service-quota-increase \
+  --region us-east-2 --service-code vpc --quota-code L-FE5A380F --desired-value 11
+```
 
 ---
 
