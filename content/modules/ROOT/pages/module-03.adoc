@@ -516,10 +516,11 @@ oc set resources deployment load-generator -n {namespace} \
   --requests=cpu=2m --limits=cpu=500m
 ----
 
-Wait 60 seconds, then check:
+Wait for the rollout to complete before reading the HPA — the new pod must be running with the new request value before the HPA percentage is meaningful:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
+oc rollout status deployment/load-generator -n {namespace} --timeout=60s
 oc get hpa -n {namespace} load-generator
 ----
 
@@ -534,13 +535,14 @@ load-generator   Deployment/load-generator   cpu: 333%/75%   1         5        
 ----
 # Step B: Large request → HPA goes silent, percentage near zero
 oc set resources deployment load-generator -n {namespace} \
-  --requests=cpu=200m --limits=cpu=500m
+  --requests=cpu=500m --limits=cpu=500m
 ----
 
-Wait 60 seconds, then check:
+Wait for the rollout, then check:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
+oc rollout status deployment/load-generator -n {namespace} --timeout=60s
 oc get hpa -n {namespace} load-generator
 ----
 
@@ -553,7 +555,10 @@ load-generator   Deployment/load-generator   cpu: 0%/75%   1         5         1
 
 For each change, write down your prediction *before* running `oc get hpa` — given this request and the current CPU usage, what utilization percentage do you expect? Then check if you were right. That prediction skill — reasoning about how request values affect scaling decisions — is what this lab is building.
 
-When you have finished exploring, reset `load-generator` back to its right-sized values before continuing:
+[IMPORTANT]
+====
+When you have finished exploring, *reset `load-generator` back to your right-sized values before continuing to Part 6*. The right-sizer re-applies the CPU and memory values it recommended in Part 4. If you skip this, Part 6 will not behave as expected.
+====
 
 [source,bash,subs="+attributes",role=execute]
 ----
