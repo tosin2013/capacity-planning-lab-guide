@@ -546,6 +546,7 @@ After both clusters provision, verify:
 - [ ] Grafana Layer 1: `oc auth can-i list projects --as=user-1` returns `yes`
 - [ ] Grafana Layer 2: `oc auth can-i list managedclusters --as=system:serviceaccount:open-cluster-management-observability:grafana` returns `yes`
 - [ ] User1 can log into Grafana with `workshop-students` IDP and see dashboards (Module 2/5 prerequisite)
+- [ ] Grafana cluster dropdown shows all managed clusters (not just `local-cluster`) — if only `local-cluster` appears after RBAC repair, the student must **log out and log back in** to get a fresh OAuth session
 - [ ] Student ArgoCD app `capacity-planning-workshop` is **Healthy + Synced**
 - [ ] Student sample apps Deployments are all Available: `oc get deploy -n capacity-workshop`
 - [ ] Student can SSH to bastion using credentials from `provision-user-info.yaml`
@@ -567,3 +568,4 @@ After both clusters provision, verify:
 | Students see 403 at Grafana route | Layer 1 ClusterRoleBindings missing | Run `bash scripts/provision-grafana-student-access.sh --count 8 --hub-kubeconfig <HKC>` |
 | Grafana dashboards show "No data" for all users | Layer 2 per-cluster RoleBindings missing or Grafana SA RBAC removed | Run repair script; confirm clusters are imported with `oc get managedclusters` |
 | "No data" only for clusters added after hub provision | Layer 2 RoleBindings not yet in new cluster namespace | Re-run repair script after cluster import |
+| Student can log in but cluster dropdown only shows `local-cluster` | Grafana OAuth session was established before Layer 2 RBAC was applied; `rbac-query-proxy` caches the cluster list per session | Student must **log out of Grafana** (top-right avatar → Sign out) and log back in via the `workshop-students` IDP. A fresh session re-evaluates RBAC and all managed clusters appear in the dropdown. |

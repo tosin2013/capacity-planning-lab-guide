@@ -128,3 +128,9 @@ oc auth can-i delete nodes --as=user-1   # must return 'no'
 1. Confirm student clusters are imported: `oc get managedclusters`
 2. The per-cluster-namespace RoleBindings only exist for clusters present at repair time. If a cluster was added afterward, re-run this role.
 3. Wait 2–5 minutes for the `rbac-query-proxy` to pick up new bindings, then hard-refresh the Grafana browser tab.
+
+**Student can log in but cluster dropdown only shows `local-cluster`**
+
+The `rbac-query-proxy` evaluates RBAC at session start and caches the cluster list for the lifetime of that OAuth session. If a student logged in **before** the Layer 2 RoleBindings were applied, their session will never see the new clusters — regardless of hard-refreshing the dashboard.
+
+Fix: the student must **log out of Grafana** (top-right avatar → Sign out) and log back in via the `workshop-students` IDP. The new session re-evaluates RBAC and the full list of managed clusters appears in dashboard dropdowns immediately.
