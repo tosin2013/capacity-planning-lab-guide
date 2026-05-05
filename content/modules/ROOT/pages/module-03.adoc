@@ -462,7 +462,7 @@ Create an HPA targeting 75% CPU utilization:
 [source,bash,role=execute,subs="+attributes"]
 ----
 oc autoscale deployment load-generator -n {namespace} \
-  --min=1 --max=5 --cpu 75%
+  --min=1 --max=5 --cpu-percent=75
 ----
 
 [source,bash,role=execute,subs="+attributes"]
