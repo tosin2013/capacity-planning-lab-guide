@@ -34,6 +34,16 @@ echo "Paste this into each student-NN.yml: $HUB_RHACM"
 
 # Step E — Re-run to apply the corrected URL to all student clusters (hub is skipped):
 bash scripts/deploy-workshop.sh --account sandbox<N> --skip-hub
+
+# Step F — REQUIRED: apply Grafana Layer 2 RBAC after all student clusters are imported.
+# Without this, students can log into Grafana but the cluster dropdown only shows
+# local-cluster and all panels show "No data".
+# deploy-workshop.sh v1.1+ runs this automatically; run manually if using an older script.
+HKC=~/agnosticd-v2-output/hub-capacity/openshift-cluster_hub-capacity_kubeconfig
+bash scripts/provision-grafana-student-access.sh \
+  --count <N_STUDENTS> \
+  --hub-kubeconfig "${HKC}"
+# Then tell each student to log out of Grafana and log back in via the workshop-students IDP.
 ```
 
 > **Why update hub_rhacm_url after the initial run?** The `hub_rhacm_url` in each student var file pre-populates the Module 5 RHACM console link in the AgnosticD provision output. It cannot be filled in before the hub exists. The Showroom lab guide itself always uses the correct URL (injected by `deploy-multiuser-showroom.sh` from the actual hub output), so student clusters are fully functional after Step C — Step E just ensures the `agnosticd_user_info` log output is also correct.
@@ -285,9 +295,11 @@ When complete, check `~/agnosticd-v2-output/hub-capacity/provision-user-data.yam
 
 ---
 
-## Step 2.5 — Verify (and Repair) Grafana Student Access
+## Step 2.5 — Grafana Student Access (REQUIRED after student cluster import)
 
-The hub workload provisions Grafana student access automatically. Run this verification immediately after the hub provision completes to confirm both RBAC layers are in place before provisioning student clusters.
+> **This is a hard deployment requirement.** After all student clusters have been imported into RHACM, you MUST run `provision-grafana-student-access.sh` to create the Layer 2 per-cluster `RoleBinding` objects. Without them, students can log into Grafana but the cluster dropdown shows only `local-cluster` and all panels display "No data" — even though metrics are flowing correctly to Thanos. `deploy-workshop.sh` v1.1+ runs this automatically; if you provisioned manually or used an older script, run it by hand (see below).
+
+The hub workload provisions Grafana student access automatically during hub provision. This step verifies both RBAC layers are in place and re-applies them if needed.
 
 ### What was provisioned by the hub workload
 
@@ -316,24 +328,30 @@ oc --kubeconfig="${HKC}" auth can-i list projects --as=user-1
 oc --kubeconfig="${HKC}" auth can-i list managedclusters \
   --as=system:serviceaccount:open-cluster-management-observability:grafana
 # Expected: yes
+
+# Layer 2 — confirm per-cluster RoleBindings exist in each student namespace
+# (one RoleBinding per user per managed cluster; must run AFTER student cluster import)
+for NS in $(oc --kubeconfig="${HKC}" get managedclusters -o name | sed 's|.*/||'); do
+  echo "=== ${NS} ==="; \
+  oc --kubeconfig="${HKC}" get rolebinding -n "${NS}" \
+    -l app.kubernetes.io/part-of=capacity-workshop 2>/dev/null \
+    | grep -E "workshop-obs-view|No resources" || echo "  (no workshop-obs-view bindings found — run repair script)"
+done
 ```
 
-### If either check fails — run the repair script
+### Run the repair script — required after student cluster import
 
 ```bash
 cd ~/capacity-planning-lab-guide
+# Replace <N> with the number of students in your deployment (e.g. 5)
 bash scripts/provision-grafana-student-access.sh \
-  --count 8 \
+  --count <N> \
   --hub-kubeconfig "${HKC}"
 ```
 
 The script accepts `--dry-run` to preview changes and `--verify-only` to re-run checks without applying RBAC.
 
-When a student cluster is added to RHACM **after** hub provisioning, re-run the repair script to create the Layer 2 RoleBindings in the new cluster's namespace:
-
-```bash
-bash scripts/provision-grafana-student-access.sh --count 8 --hub-kubeconfig "${HKC}"
-```
+After the script completes, **each student must log out of Grafana** (top-right avatar → Sign out) and log back in via the `workshop-students` IDP. The `rbac-query-proxy` caches the cluster list per OAuth session; a fresh login re-evaluates the new RoleBindings and populates the cluster dropdown.
 
 ---
 
@@ -543,10 +561,12 @@ After both clusters provision, verify:
 
 - [ ] Hub Showroom loads: `https://showroom-showroom-<guid>.apps.hub.<guid>.<domain>/`
 - [ ] Hub RHACM console loads and shows 0 clusters initially
+- [ ] **[REQUIRED]** `provision-grafana-student-access.sh` has been run after all student clusters were imported into RHACM (`deploy-workshop.sh` v1.1+ does this automatically)
 - [ ] Grafana Layer 1: `oc auth can-i list projects --as=user-1` returns `yes`
 - [ ] Grafana Layer 2: `oc auth can-i list managedclusters --as=system:serviceaccount:open-cluster-management-observability:grafana` returns `yes`
+- [ ] Grafana Layer 2 (per-cluster): `workshop-obs-view-user-N` RoleBindings exist in each managed cluster namespace (see Step 2.5 verification commands)
 - [ ] User1 can log into Grafana with `workshop-students` IDP and see dashboards (Module 2/5 prerequisite)
-- [ ] Grafana cluster dropdown shows all managed clusters (not just `local-cluster`) — if only `local-cluster` appears after RBAC repair, the student must **log out and log back in** to get a fresh OAuth session
+- [ ] Grafana cluster dropdown shows all managed clusters (not just `local-cluster`) — if only `local-cluster` appears, run the repair script then have the student log out and log back in
 - [ ] Student ArgoCD app `capacity-planning-workshop` is **Healthy + Synced**
 - [ ] Student sample apps Deployments are all Available: `oc get deploy -n capacity-workshop`
 - [ ] Student can SSH to bastion using credentials from `provision-user-info.yaml`
