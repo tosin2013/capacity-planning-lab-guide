@@ -107,4 +107,4 @@ ocp4_workload_capacity_planning_workshop_rhacm_thanos_bucket: "rhacm-metrics-hub
 # Scaling note: each additional student requires 1 extra OCP cluster (2 VPCs, ~4 EIPs,
 # 1 NAT GW, 3× m7a.2xlarge nodes). Request AWS quota increases before scaling beyond 4.
 # See docs/hub-student-deployment.md for the full resource table.
-ocp4_workload_capacity_planning_workshop_max_users: 4
+ocp4_workload_capacity_planning_workshop_max_users: 5

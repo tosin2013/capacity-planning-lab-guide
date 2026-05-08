@@ -55,8 +55,9 @@ HUB_API="$(yaml_get "${HUB_DATA}" hub_api_url)"
 HUB_GRAFANA="$(yaml_get "${HUB_DATA}" hub_grafana_url)"
 HUB_PASSWORD="$(yaml_get "${HUB_DATA}" hub_password)"
 HUB_CONSOLE="$(yaml_get "${HUB_DATA}" openshift_console_url)"
-HUB_ADMIN_USER="$(yaml_get "${HUB_DATA}" openshift_cluster_admin_username)"
-HUB_ADMIN_USER="${HUB_ADMIN_USER:-admin}"
+HUB_ADMIN_USER="kubeadmin"
+KUBEADMIN_PWD_FILE="${OUTPUT_DIR_ROOT}/${HUB_GUID}/openshift-cluster_${HUB_GUID}_kubeadmin-password"
+HUB_KUBEADMIN_PASSWORD="$(cat "${KUBEADMIN_PWD_FILE}" 2>/dev/null | tr -d '\n' || echo '<check kubeadmin-password file>')"
 HUB_INGRESS_DOMAIN="apps.hub.${HUB_GUID}.${SANDBOX}.opentlc.com"
 
 # ── Helper: get per-student Showroom URL ─────────────────────
@@ -93,7 +94,7 @@ get_student_showroom_url() {
   echo "  Hub API:               ${HUB_API:-<not available>}"
   echo "  Grafana:               ${HUB_GRAFANA:-<not available>}"
   echo "  Hub Admin Username:    ${HUB_ADMIN_USER}"
-  echo "  Hub Admin Password:    ${HUB_PASSWORD:-openshift}"
+  echo "  Hub Admin Password:    ${HUB_KUBEADMIN_PASSWORD}"
   echo ""
   echo ""
 

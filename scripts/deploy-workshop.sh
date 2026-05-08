@@ -16,31 +16,31 @@
 #   bash scripts/deploy-workshop.sh [OPTIONS]
 #
 # Options:
-#   --account      ACCOUNT      AgnosticD account name (default: sandbox3967)
+#   --account      ACCOUNT      AgnosticD account name (default: sandbox1139)
 #   --hub-guid     GUID         Hub GUID              (default: hub-capacity)
-#   --students     "01 02 03"   Space-separated slots (default: "01 02 03")
+#   --students     "01 02 03"   Space-separated slots (default: "01 02 03 04 05")
 #   --skip-hub                  Skip hub provision entirely
 #   --skip-showroom             Skip the multi-user Showroom deployment step
 #   --dry-run                   Print agd commands without executing them
 #   -h, --help                  Show this help
 #
 # Examples:
-#   # Full deploy — hub + 3 students
-#   bash scripts/deploy-workshop.sh --account sandbox3967
+#   # Full deploy — hub + 5 students
+#   bash scripts/deploy-workshop.sh --account sandbox1139
 #
 #   # Re-run after quota increase (hub already done, fix students only)
-#   bash scripts/deploy-workshop.sh --account sandbox3967 --skip-hub
+#   bash scripts/deploy-workshop.sh --account sandbox1139 --skip-hub
 #
 #   # Preview what would run without actually running it
-#   bash scripts/deploy-workshop.sh --account sandbox3967 --dry-run
+#   bash scripts/deploy-workshop.sh --account sandbox1139 --dry-run
 # ============================================================
 
 set -euo pipefail
 
 # ── Defaults ─────────────────────────────────────────────────
-ACCOUNT="${ACCOUNT:-sandbox3967}"
+ACCOUNT="${ACCOUNT:-sandbox1139}"
 HUB_GUID="${HUB_GUID:-hub-capacity}"
-STUDENT_SLOTS="${STUDENT_SLOTS:-01 02 03}"
+STUDENT_SLOTS="${STUDENT_SLOTS:-01 02 03 04 05}"
 SKIP_HUB=false
 SKIP_SHOWROOM=false
 DRY_RUN=false
