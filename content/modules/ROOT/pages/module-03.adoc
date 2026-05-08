@@ -661,3 +661,7 @@ Many developers resist setting requests because they feel like "quotas" or "limi
 In xref:module-04.adoc[Module 4: Infrastructure Track - Fleet Architecture & Sizing], we shift to the platform engineer perspective. You'll learn node density math, etcd limits, and when to split clusters versus grow them.
 
 The skills from this module (accurate requests) directly feed into Module 4's capacity calculations. If requests are wrong, density calculations are wrong, and you'll buy the wrong amount of infrastructure.
+
+== Further reading
+
+* link:https://tosin2013.github.io/capacity-planning-lab-guide/blogs/post-d-kubernetes-requests-limits-explainer[Kubernetes requests and limits: why both teams are right] — Red Hat blog post expanding on QoS classes, CPU throttling, P95 right-sizing, and the HPA formula covered in this module.

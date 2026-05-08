@@ -305,3 +305,7 @@ In xref:module-02.adoc[Module 2: Mathematics of Forecasting], we'll take this ba
 
 If you have access to your own production clusters, run the same audit commands and bring your findings to Module 2. We'll use real data to build your forecasting model.
 ====
+
+== Further reading
+
+* link:https://tosin2013.github.io/capacity-planning-lab-guide/blogs/post-b-openshift-capacity-planning-explainer[OpenShift capacity planning: from reactive firefighting to predictive forecasting] — Red Hat blog post covering planning horizons, the allocated vs. consumed gap, and the Pod Velocity Model introduced in Modules 1 and 2.

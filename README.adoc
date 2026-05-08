@@ -159,6 +159,15 @@ spec:
 - **Documentation**: Antora 3.1, AsciiDoc
 - **Lab Environment**: Showroom (RHDP)
 
+== Related blog posts
+
+The following blog posts expand on the key concepts taught in this workshop:
+
+* link:blogs/post-b-openshift-capacity-planning-explainer.md[OpenShift capacity planning: from reactive firefighting to predictive forecasting] — Covers planning horizons, the allocated vs. consumed gap, and the Pod Velocity Model (Modules 1–2).
+* link:blogs/post-d-kubernetes-requests-limits-explainer.md[Kubernetes requests and limits: why both teams are right] — Unpacks QoS classes, CPU throttling, P95 right-sizing, and HPA behavior (Module 3).
+* link:blogs/post-a-rhacm-multicluster-observability-deep-dive.md[RHACM multi-cluster observability for OpenShift: Thanos, Grafana, and fleet-wide capacity planning] — Deep dive into hub-spoke architecture, metric allowlists, and observability cost optimization (Module 5).
+* link:blogs/post-c-capacity-planning-discipline-thought-leadership.md[Why platform teams need a capacity planning discipline, not just more dashboards] — Thought leadership on translating capacity metrics into executive roadmaps (Module 7).
+
 == Contributing
 
 This workshop is maintained for use with Red Hat Demo Platform. For issues or improvements:

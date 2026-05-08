@@ -766,3 +766,7 @@ Most organizations are at Level 1-2. This module gets you to Level 3.
 In xref:module-06.adoc[Module 6: The Integration Challenge], you'll put everything together in a live simulation: a "Black Friday" traffic spike combined with an availability zone failure. You'll use the skills from Modules 1-5 to survive the chaos and keep the platform running.
 
 The observability dashboards from this module will be your "mission control" during the simulation.
+
+== Further reading
+
+* link:https://tosin2013.github.io/capacity-planning-lab-guide/blogs/post-a-rhacm-multicluster-observability-deep-dive[RHACM multi-cluster observability for OpenShift: Thanos, Grafana, and fleet-wide capacity planning] — Red Hat blog post with a technical deep dive into the hub-spoke architecture, metric allowlists, and the 95% storage reduction covered in this module.

@@ -893,6 +893,8 @@ After implementing these practices, share your results:
 
 === Additional Resources
 
+* link:https://tosin2013.github.io/capacity-planning-lab-guide/blogs/post-c-capacity-planning-discipline-thought-leadership[Why platform teams need a capacity planning discipline, not just more dashboards] — Red Hat thought leadership post on translating technical metrics into executive roadmaps.
+* link:https://tosin2013.github.io/capacity-planning-lab-guide/blogs/post-b-openshift-capacity-planning-explainer[OpenShift capacity planning: from reactive firefighting to predictive forecasting] — Foundational explainer on planning horizons and the Pod Velocity Model.
 * *Red Hat Docs*: https://access.redhat.com/documentation/en-us/openshift_container_platform/4.14/html/scalability_and_performance/index
 * *RHACM Observability*: https://access.redhat.com/documentation/en-us/red_hat_advanced_cluster_management_for_kubernetes/2.9/html/observability/index
 * *FinOps Foundation*: https://www.finops.org/ (cloud cost optimization best practices)
