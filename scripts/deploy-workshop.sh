@@ -503,6 +503,26 @@ YAML
   done
 fi
 
+# ── Post-import: Grafana Layer 2 RBAC ────────────────────────
+# Creates per-cluster RoleBinding/workshop-obs-view-<user> in each
+# managed cluster namespace so rbac-query-proxy includes those clusters
+# in student Grafana sessions.  Without this, students only see
+# local-cluster in the Grafana cluster dropdown even though metrics
+# are flowing correctly to Thanos.
+if [[ "${DRY_RUN}" == true ]]; then
+  log "[DRY-RUN] would run: bash scripts/provision-grafana-student-access.sh \\"
+  log "  --count ${STUDENT_COUNT} --hub-kubeconfig <HKC> --no-restart"
+elif [[ ! -f "${HKC}" ]]; then
+  log "WARNING: hub kubeconfig not found (${HKC}) — skipping Grafana Layer 2 RBAC"
+else
+  log_section "Applying Grafana Layer 2 RBAC for student cluster namespaces"
+  bash "${REPO_ROOT}/scripts/provision-grafana-student-access.sh" \
+    --count          "${STUDENT_COUNT}" \
+    --hub-kubeconfig "${HKC}" \
+    --no-restart \
+  || log "WARNING: provision-grafana-student-access.sh exited non-zero — check output above"
+fi
+
 # ── Post-provision: student-info.txt ─────────────────────────
 log_section "Generating student-info.txt"
 # Pass ACCOUNT as SANDBOX so URL construction uses the correct base domain.
