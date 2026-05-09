@@ -111,7 +111,7 @@ For capacity planning, you only need:
 |`kube_pod_container_resource_requests`
 
 |*Actual Usage*
-|`container_cpu_usage_seconds_total`, `container_memory_working_set_bytes`
+|`node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate` (recording rule), `container_memory_working_set_bytes`
 
 |*etcd Health*
 |`etcd_debugging_mvcc_db_total_size_in_bytes`, `etcd_server_has_leader`
@@ -323,10 +323,10 @@ When building dashboards, use the `cluster` label to filter:
 [source,promql]
 ----
 # All clusters
-sum(rate(container_cpu_usage_seconds_total[5m])) by (cluster)
+sum by (cluster) (node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate)
 
 # Your cluster only
-sum(rate(container_cpu_usage_seconds_total{cluster="sno-{guid}-{user}"}[5m]))
+sum by (cluster) (node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate{cluster="sno-{guid}-{user}"})
 ----
 ====
 endif::[]
@@ -359,7 +359,7 @@ Walk through the "ACM - Kubernetes / Compute Resources / Cluster" dashboard and 
 ====
 *CPU Used and Memory Used lines will appear empty at this point.*
 
-The custom metric allowlist has been pre-configured with `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`, but it can take *2–5 minutes* after the allowlist is applied for metrics to start flowing from managed clusters into Thanos. In Part 3 you will inspect the allowlist and understand why those metrics are required for these panels.
+The custom metric allowlist has been pre-configured with `container_memory_working_set_bytes`. CPU usage is provided by the `node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate` recording rule already forwarded by the RHACM default allowlist. It can take *2–5 minutes* for metrics to start flowing from managed clusters into Thanos. In Part 3 you will inspect the allowlist and understand which metrics drive each panel.
 ====
 
 === Part 3: Understanding the Metric Allowlist
@@ -441,9 +441,6 @@ data:
       # CPU throttling — Module 3 right-sizing analysis
       - __name__="container_cpu_cfs_throttled_seconds_total"
 
-      # Module 5 Panel 2B — actual CPU usage vs requested (fleet CPU gap)
-      - __name__="container_cpu_usage_seconds_total"
-
       # Module 5 Panel 3B — actual memory usage vs requested (fleet memory gap)
       - __name__="container_memory_working_set_bytes"
 ----
@@ -475,12 +472,17 @@ data:
 |`container_cpu_cfs_throttled_seconds_total`
 |Module 3 right-sizing analysis — identifies containers that are being CPU-throttled. Not in the RHACM default allowlist.
 
-|`container_cpu_usage_seconds_total`
-|Module 5 Panel 2B — the "CPU Used" line in the CPU requests vs actual usage chart. Without this metric the used line is blank.
-
 |`container_memory_working_set_bytes`
 |Module 5 Panel 3B — the "Memory Used" line in the memory requests vs actual usage chart. Without this metric the used line is blank.
 |===
+
+[NOTE]
+====
+*CPU Used line uses the RHACM default allowlist recording rule.*
+
+The "CPU Used" line in Panel 2 is powered by `node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate` which the RHACM built-in `observability-metrics-allowlist` already forwards on every managed cluster.
+The raw counter `container_cpu_usage_seconds_total` is intentionally *not* in the custom allowlist — adding a raw counter to an allowlist where the same data is already being collected via recording rules causes Thanos Receive+Store overlap duplicates that make `rate()` queries fail with "vector cannot contain metrics with the same labelset".
+====
 
 ==== Verify the Memory Used metric is flowing
 
@@ -593,7 +595,7 @@ The ConfigMap contains seven panels — all using Thanos data from every managed
 |===
 |Panel |Visualization |PromQL (key metric)
 |Total Pods by Cluster |Bar gauge |`sum by (cluster)(kube_pod_info)`
-|CPU: Requested vs Used |Time series (A/B) |`kube_pod_container_resource_requests{resource="cpu"}` vs `rate(container_cpu_usage_seconds_total[5m])`
+|CPU: Requested vs Used |Time series (A/B) |`kube_pod_container_resource_requests{resource="cpu"}` vs `node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate`
 |Memory: Requested vs Used |Time series (A/B) |`kube_pod_container_resource_requests{resource="memory"}` vs `container_memory_working_set_bytes`
 |Capacity Runway (Days) |Table |`(allocatable - requests) / (increase([30d])/30)`
 |Pod Density (pods/node) |Stat |`kube_pod_info / kube_node_info{worker}`
