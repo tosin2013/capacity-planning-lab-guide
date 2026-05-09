@@ -531,6 +531,15 @@ NAME             REFERENCE                   TARGETS         MINPODS   MAXPODS  
 load-generator   Deployment/load-generator   cpu: 333%/75%   1         5         5          ...
 ----
 
+Now cross-check the actual live CPU consumption against the HPA percentage — this is what drives the formula:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc adm top pods -n {namespace}
+----
+
+The CPU(cores) column shows raw usage. Divide it by the request you just set (2m) to see why the HPA percentage is so extreme — if the pod is using, say, 80m CPU with a 2m request, that is 40× the request, which appears as ~4000% in TARGETS.
+
 [source,bash,role=execute,subs="+attributes"]
 ----
 # Step B: Large request → HPA goes silent, percentage near zero
@@ -553,6 +562,15 @@ NAME             REFERENCE                   TARGETS       MINPODS   MAXPODS   R
 load-generator   Deployment/load-generator   cpu: 0%/75%   1         5         1          ...
 ----
 
+Check actual usage again — notice that the raw CPU(cores) number is similar to Step A, but the HPA percentage has collapsed:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc adm top pods -n {namespace}
+----
+
+The pod is doing the same work as before, but a 500m request makes even 80m of real usage look like only ~16%. The formula is unchanged; only the denominator (the request value) changed.
+
 For each change, write down your prediction *before* running `oc get hpa` — given this request and the current CPU usage, what utilization percentage do you expect? Then check if you were right. That prediction skill — reasoning about how request values affect scaling decisions — is what this lab is building.
 
 [IMPORTANT]
@@ -564,6 +582,15 @@ When you have finished exploring, *reset `load-generator` back to your right-siz
 ----
 NAMESPACE={namespace} APPLY=true ~/module-03/resource-right-sizer.sh
 ----
+
+Confirm the pod load returned to the expected range after the right-sized request is restored:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc adm top pods -n {namespace}
+----
+
+The CPU(cores) value here is your actual workload baseline — it should produce a HPA TARGETS percentage close to what you observed when you first created the HPA earlier in this part.
 
 === Part 6: Debug OOMKilled Events
 
