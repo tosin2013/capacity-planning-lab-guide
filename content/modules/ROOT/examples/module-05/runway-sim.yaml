@@ -1,0 +1,21 @@
+---
+# kube-burner v2 job config — Module 5 Capacity Runway simulation (optional Part 8)
+# Deploys 5 iterations × 3 replicas = 15 pods, each requesting 300m CPU (4.5 cores total).
+# Within one Thanos scrape interval (~5 min) the Capacity Runway panel transitions from
+# "Stable — no growth detected" to a real countdown in days.
+global:
+  gc: false          # leave pods running so Thanos scrapes the new requests
+  waitWhenFinished: true
+  measurements: []
+
+jobs:
+  - name: runway-sim
+    namespace: capacity-workshop
+    jobIterations: 5
+    namespacedIterations: false
+    waitForDeletion: false
+    maxWaitTimeout: 3m
+    jobPause: 2s      # small pause between iterations to avoid API flooding
+    objects:
+      - objectTemplate: runway-sim-pod.yaml
+        replicas: 3
