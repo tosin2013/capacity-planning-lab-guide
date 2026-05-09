@@ -632,7 +632,14 @@ RHACM Grafana uses OpenShift OAuth — there is no separate Grafana username or 
 
 In the left sidebar, click *Dashboards* → *Custom* → *Module 5 — Multi-Cluster Capacity Planning*.
 
-You will see all seven panels populated with data from both the hub (`local-cluster`) and your student cluster:
+[IMPORTANT]
+====
+*Select your cluster from the dropdown before reading the panels.*
+
+The dashboard opens with *All* selected in the *Cluster* dropdown. Use the dropdown at the top of the dashboard to select your own SNO cluster (`sno-{guid}-{user}` — visible in the list). Leaving it on *All* includes the hub (`local-cluster`), which runs two metrics-collectors and causes a "vector cannot contain metrics with the same labelset" error on the CPU Used and Capacity Runway panels. Selecting a specific SNO cluster avoids this entirely.
+====
+
+You will see all seven panels populated with data from your student cluster:
 
 image::module-05-grafana-overview.png[Module 5 dashboard — top two rows showing Total Pods by Cluster (local-cluster: 416, student-01: 300), CPU Requested vs Used time series, Memory Requested vs Used time series, and Capacity Runway table,align="center"]
 
