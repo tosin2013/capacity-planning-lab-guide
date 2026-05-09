@@ -288,6 +288,8 @@ Get the Grafana route:
 echo "RHACM Grafana: {grafana_url}"
 ----
 
+Or click directly: link:{grafana_url}[{grafana_url},window=_blank]
+
 Open this URL in a new browser tab. You'll be prompted to log in with your OpenShift credentials.
 
 Once logged in, you'll see the default RHACM dashboards:
@@ -608,10 +610,7 @@ The `cluster` dropdown defaults to *All*, giving a fleet-wide view. Select a spe
 
 Open a new browser tab and navigate to the RHACM Grafana instance running on the hub:
 
-[source,text,subs="+attributes"]
-----
-{hub_grafana_url}
-----
+link:{hub_grafana_url}[{hub_grafana_url},window=_blank]
 
 ==== Step 5b — Authenticate with OpenShift
 
