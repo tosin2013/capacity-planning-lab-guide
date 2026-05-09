@@ -404,16 +404,22 @@ oc get node -l node-role.kubernetes.io/worker -o json | jq -r '.items[0].status.
 .Sample Output
 [source,textinfo]
 ----
-30263052Ki  (~29GB allocatable)
+30988400Ki
 ----
+
+[TIP]
+====
+*Converting Ki to GB*: Divide by 1,048,576. `30988400 / 1048576 ≈ 29.5GB` allocatable.
+Your value will vary slightly depending on the instance type and how much the OS and Kubernetes system components reserve.
+====
 
 [TIP]
 ====
 *Memory Overhead Calculation*:
 
-On a 32GB node:
-* Allocatable: 29GB (32GB - 3GB system reserved)
-* Current usage at 42 pods: ~3.8GB (13% of 29GB)
+On a 32GB node (e.g., `m5.2xlarge`):
+* Allocatable: ~29.5GB (`30988400Ki`) — 32GB minus system-reserved memory for the OS and Kubernetes components
+* Current usage at 42 pods: ~3.8GB (13% of 29.5GB)
 * App pod memory requests: ~2.5GB
 * Kubernetes overhead: 3.8GB - 2.5GB = ~1.3GB
 
