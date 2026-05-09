@@ -59,7 +59,7 @@ spec:
   - name: oom
     image: quay.io/prometheus/busybox:latest
     command: ["/bin/sh", "-c"]
-    args: ["dd if=/dev/zero bs=1M count=100 2>/dev/null || true"]
+    args: ["dd if=/dev/zero of=/dev/shm/fill bs=1M count=200 2>&1; echo done"]
     resources:
       requests:
         cpu: 10m
@@ -67,6 +67,14 @@ spec:
       limits:
         cpu: 100m
         memory: 4Mi
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      runAsUser: 1000
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
 EOF
 
 success "Pod created — it will try to allocate 100MB against a 4Mi limit."
