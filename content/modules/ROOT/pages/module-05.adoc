@@ -241,12 +241,18 @@ Full instructions: https://access.redhat.com/documentation/en-us/red_hat_advance
 
 Check the observability components:
 
-[source,bash,role=execute]
+[NOTE]
+====
+*Admin-only view*: The `open-cluster-management-observability` namespace is restricted to cluster administrators. As a workshop student (`{hub_username}`) you will get a `Forbidden` error if you run this command directly — this output is shown for reference so you understand what was pre-configured on your behalf.
+
+The hub admin (or AgnosticD provisioning automation) ran:
+
+[source,bash]
 ----
 oc get pods -n open-cluster-management-observability
 ----
 
-.Sample Output
+.Reference Output — what the hub admin sees
 [source,textinfo]
 ----
 NAME                                                  READY   STATUS    RESTARTS   AGE
@@ -260,6 +266,7 @@ observability-thanos-query-7c9d4f8b6d-p2x5k          1/1     Running   0        
 observability-thanos-receive-default-0                1/1     Running   0          5d
 observability-thanos-store-shard-0-0                  1/1     Running   0          5d
 ----
+====
 
 [TIP]
 ====
