@@ -383,12 +383,10 @@ This is why adding a metric to the configmap is sometimes the only way to make a
 
 ==== Inspect the pre-configured allowlist
 
-[source,bash,role=execute]
+You are already logged into the hub from Part 1. Run:
+
+[source,bash,role=execute,subs="+attributes"]
 ----
-oc login {hub_api_url} \
-  --username={hub_username} \
-  --password={hub_password} \
-  --insecure-skip-tls-verify=true
 oc get configmap observability-metrics-custom-allowlist \
   -n open-cluster-management-observability -o yaml
 ----
