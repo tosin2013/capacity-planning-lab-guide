@@ -814,13 +814,13 @@ cd ~/module-05
 Sample output:
 [source,text]
 ----
-INFO     Starting job runway-sim
-INFO     Created Deployment runway-sim-1 in namespace capacity-workshop
-INFO     Created Deployment runway-sim-2 in namespace capacity-workshop
-INFO     Created Deployment runway-sim-3 in namespace capacity-workshop
-INFO     Created Deployment runway-sim-4 in namespace capacity-workshop
-INFO     Created Deployment runway-sim-5 in namespace capacity-workshop
-INFO     Job runway-sim completed
+time="..." level=info msg="🔥 Starting kube-burner (2.6.1@...) with UUID ..."
+time="..." level=info msg="Pre-load: All images pulled on 3 nodes"
+time="..." level=info msg="Triggering job: runway-sim"
+time="..." level=info msg="0/5 iterations completed"
+time="..." level=info msg="Verifying created objects"
+time="..." level=info msg="Finished execution with UUID: ..."
+time="..." level=info msg="👋 Exiting kube-burner ..."
 ----
 
 Confirm the deployments are running:
