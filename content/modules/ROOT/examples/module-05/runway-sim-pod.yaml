@@ -1,39 +1,32 @@
 ---
-# kube-burner Deployment template — Module 5 Capacity Runway simulation
+# kube-burner Pod template — Module 5 Capacity Runway simulation (optional Part 8)
 # Uses the lightweight pause image (no actual CPU burn) so the simulation
 # affects kube_pod_container_resource_requests without stressing the node.
-kind: Deployment
-apiVersion: apps/v1
+apiVersion: v1
+kind: Pod
 metadata:
-  name: runway-sim-{{.Iteration}}
+  name: runway-sim-{{.Iteration}}-{{.Replica}}
   labels:
-    kube-burner-job: runway-sim
     app: runway-sim
+    kube-burner-job: runway-sim
+    demo.redhat.com/application: capacity-workshop
+    module: "5"
 spec:
-  replicas: {{.Replicas}}
-  selector:
-    matchLabels:
-      app: runway-sim-{{.Iteration}}
-  template:
-    metadata:
-      labels:
-        app: runway-sim-{{.Iteration}}
-        kube-burner-job: runway-sim
-    spec:
-      containers:
-        - name: pause
-          image: registry.k8s.io/pause:3.9
-          resources:
-            requests:
-              cpu: 300m
-              memory: 64Mi
-            limits:
-              cpu: 300m
-              memory: 64Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-            runAsNonRoot: true
-            seccompProfile:
-              type: RuntimeDefault
+  containers:
+    - name: pause
+      image: registry.k8s.io/pause:3.9
+      resources:
+        requests:
+          cpu: 300m
+          memory: 64Mi
+        limits:
+          cpu: 300m
+          memory: 64Mi
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+  restartPolicy: Never
