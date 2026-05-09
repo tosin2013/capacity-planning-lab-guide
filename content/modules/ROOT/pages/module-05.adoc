@@ -353,6 +353,13 @@ Walk through the "ACM - Kubernetes / Compute Resources / Cluster" dashboard and 
 *Answer*: Look for clusters with high "Requested" but low "Usage" - those are wasting capacity.
 ====
 
+[NOTE]
+====
+*CPU Used and Memory Used lines will appear empty at this point.*
+
+The custom metric allowlist has been pre-configured with `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`, but it can take *2–5 minutes* after the allowlist is applied for metrics to start flowing from managed clusters into Thanos. In Part 3 you will inspect the allowlist and understand why those metrics are required for these panels.
+====
+
 === Part 3: Understanding the Metric Allowlist
 
 RHACM Observability does not forward every metric from every cluster to Thanos — that would consume enormous bandwidth and object storage. Instead, a *custom allowlist* ConfigMap named `observability-metrics-custom-allowlist` tells each cluster's `metrics-collector` exactly which metrics to ship.
@@ -417,12 +424,26 @@ data:
       - kube_horizontalpodautoscaler_status_current_replicas
       - kube_horizontalpodautoscaler_status_desired_replicas
 
+      # Module 5 Panel 5 — pod density (pods/node denominator)
+      - kube_node_info
+
+      # Module 5 Panel 6 — etcd DB size gauge (warn at 6 GB, limit 8 GB)
+      # RHACM renames this to etcd_debugging_mvcc_db_total_size_in_bytes in Thanos.
+      # Grafana queries must use the etcd_debugging_* name, not the raw Prometheus name.
+      - etcd_mvcc_db_total_size_in_bytes
+
     matches:
       # All pod-level kube-state-metrics — Modules 2, 3, 5, 6
       - __name__=~"kube_pod_.*"
 
       # CPU throttling — Module 3 right-sizing analysis
       - __name__="container_cpu_cfs_throttled_seconds_total"
+
+      # Module 5 Panel 2B — actual CPU usage vs requested (fleet CPU gap)
+      - __name__="container_cpu_usage_seconds_total"
+
+      # Module 5 Panel 3B — actual memory usage vs requested (fleet memory gap)
+      - __name__="container_memory_working_set_bytes"
 ----
 
 ==== Why each group is here
@@ -440,28 +461,54 @@ data:
 |`kube_horizontalpodautoscaler_*`
 |Module 5 HPA monitoring panels — show current vs desired replicas and the scaling target metric.
 
+|`kube_node_info`
+|Module 5 Panel 5 pod density — provides the node count denominator for the pods-per-node calculation.
+
+|`etcd_mvcc_db_total_size_in_bytes`
+|Module 5 Panel 6 etcd DB size gauge — RHACM Thanos renames this to `etcd_debugging_mvcc_db_total_size_in_bytes`; Grafana queries must use the renamed form.
+
 |`__name__=~"kube_pod_.*"`
 |Captures all pod-level kube-state-metrics in one rule (`kube_pod_info`, `kube_pod_status_phase`, etc.). Used across Modules 2, 3, 5, and 6.
 
 |`container_cpu_cfs_throttled_seconds_total`
 |Module 3 right-sizing analysis — identifies containers that are being CPU-throttled. Not in the RHACM default allowlist.
+
+|`container_cpu_usage_seconds_total`
+|Module 5 Panel 2B — the "CPU Used" line in the CPU requests vs actual usage chart. Without this metric the used line is blank.
+
+|`container_memory_working_set_bytes`
+|Module 5 Panel 3B — the "Memory Used" line in the memory requests vs actual usage chart. Without this metric the used line is blank.
 |===
 
-[TIP]
-====
-*What if you need a new metric in production?*
+==== Verify the Memory Used metric is flowing
 
-The platform admin patches the configmap:
+The allowlist pre-configured by this workshop already includes `container_memory_working_set_bytes` so the *Memory Used* panel line populates automatically. Confirm the entry is present:
 
-```bash
+[source,bash,role=execute,subs="+attributes"]
+----
+oc get configmap observability-metrics-custom-allowlist \
+  -n open-cluster-management-observability \
+  -o jsonpath='{.data.metrics_list\.yaml}' | grep memory
+----
+
+.Expected Output
+[source,text]
+----
+  # Module 5 Panel 3B — actual memory usage vs requested (fleet memory gap)
+  - __name__="container_memory_working_set_bytes"
+----
+
+If the entry is missing (e.g. on a self-managed deployment), a platform admin can add it with:
+
+[source,bash]
+----
 oc patch configmap observability-metrics-custom-allowlist \
   -n open-cluster-management-observability \
   --type=merge \
-  -p '{"data":{"metrics_list.yaml":"names:\n  - my_new_metric\n"}}'
-```
+  -p '{"data":{"metrics_list.yaml":"...full content with container_memory_working_set_bytes added..."}}'
+----
 
 The `metrics-collector-deployment` on each managed cluster detects the change within ~2 minutes and restarts automatically. New data starts flowing to Thanos within one scrape interval (default: 5 minutes).
-====
 
 [source,bash,role=execute]
 ----
@@ -590,7 +637,7 @@ You will see all seven panels populated with data from both the hub (`local-clus
 
 image::module-05-grafana-overview.png[Module 5 dashboard — top two rows showing Total Pods by Cluster (local-cluster: 416, student-01: 300), CPU Requested vs Used time series, Memory Requested vs Used time series, and Capacity Runway table,align="center"]
 
-The runway table shows `-∞` when a cluster's CPU request growth rate is zero or negative — meaning the cluster has infinite runway at its current trajectory. Clusters with real workload growth will show a finite number of days.
+The runway table shows *No data* when the growth rate denominator is zero — meaning CPU requests have not changed over the measurement window. This is expected on fresh or stable deployments and means runway is effectively infinite. It is not an error. Clusters with real workload growth will show a finite number of days.
 
 image::module-05-grafana-runway.png[Same dashboard view highlighting the Capacity Runway table in the top-right quadrant with red/yellow/green colour coding,align="center"]
 
