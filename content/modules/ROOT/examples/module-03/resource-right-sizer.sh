@@ -219,4 +219,15 @@ if [[ "${APPLY}" == "true" ]]; then
   info "Verifying QoS class …"
   QOS=$(oc get pod -n "${NAMESPACE}" -l app=load-generator -o jsonpath='{.items[0].status.qosClass}' 2>/dev/null || echo "unknown")
   success "QoS class : ${QOS}"
+
+  echo ""
+  info "Waiting 1s for metrics to settle …"
+  sleep 1
+
+  info "Current pod resource consumption:"
+  oc adm top pods -n "${NAMESPACE}" 2>/dev/null || warn "Metrics not yet available — re-run 'oc adm top pods -n ${NAMESPACE}' in a few seconds."
+
+  echo ""
+  info "HPA state after right-sizing:"
+  oc get hpa -n "${NAMESPACE}" 2>/dev/null || warn "No HPA found in namespace ${NAMESPACE}."
 fi
