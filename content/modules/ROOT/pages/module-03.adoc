@@ -233,16 +233,18 @@ BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/mai
 curl -fsSO $BASE/content/modules/ROOT/examples/module-03/resource-right-sizer.sh
 curl -fsSO $BASE/content/modules/ROOT/examples/module-03/stress-config.yaml
 curl -fsSO $BASE/content/modules/ROOT/examples/module-03/stress-pod.yaml
-chmod +x resource-right-sizer.sh
+curl -fsSO $BASE/content/modules/ROOT/examples/module-03/oom-demo.sh
+chmod +x resource-right-sizer.sh oom-demo.sh
 ls -lh
 ----
 
 .Sample Output
 [source,text]
 ----
+-rwxr-xr-x. 1 lab-user lab-user 3.2K Apr 20 oom-demo.sh
+-rwxr-xr-x. 1 lab-user lab-user 4.1K Apr 20 resource-right-sizer.sh
 -rw-r--r--. 1 lab-user lab-user  512 Apr 20 stress-config.yaml
 -rw-r--r--. 1 lab-user lab-user  480 Apr 20 stress-pod.yaml
--rwxr-xr-x. 1 lab-user lab-user 4.1K Apr 20 resource-right-sizer.sh
 ----
 
 Now download kube-burner — a Kubernetes workload generator used to deploy the throttling stress scenario:
@@ -504,6 +506,15 @@ In stress mode (`TARGET_RPS≥500`) the load-generator runs `wrk` continuously w
 oc get hpa -n {namespace} load-generator
 ----
 
+Now check actual CPU consumption alongside the HPA reading:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc adm top pods -n {namespace}
+----
+
+Compare the CPU(cores) value against the HPA TARGETS percentage — the formula `current_cpu / request` is exactly what produces that number.
+
 [TIP]
 ====
 *Interpret your own numbers using the formula*:
@@ -612,38 +623,47 @@ The CPU(cores) value here is your actual workload baseline — it should produce
 
 === Part 6: Debug OOMKilled Events
 
-Now let's intentionally trigger an Out-Of-Memory kill to see how to debug it.
-
-Check if there are any recent OOMKilled events:
+Run the OOM demo script — it deploys a pod with a 4Mi memory limit that immediately tries to allocate 100MB, waits for the kernel to kill it, then walks through the standard debugging workflow:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc get events -n {namespace} --field-selector reason=OOMKilling --sort-by='.lastTimestamp' | tail -5
-----
-
-If there are no recent OOM events, let's check pod status for past kills:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-oc get pods -n {namespace} -o json | \
-  jq -r '.items[] | select(.status.containerStatuses[]?.lastState.terminated.reason == "OOMKilled") | .metadata.name'
-----
-
-To investigate an OOMKilled pod, check its last termination reason:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-oc get pod <pod-name> -n {namespace} -o jsonpath='{.status.containerStatuses[0].lastState.terminated}'
+NAMESPACE={namespace} ~/module-03/oom-demo.sh
 ----
 
 .Sample Output
-[source,json]
+[source,text]
 ----
-{
-  "exitCode": 137,
-  "reason": "OOMKilled",
-  "message": "Container exceeded its memory limit"
-}
+══════════════════════════════════════════════════
+  Module 3 — OOM Kill Demo
+══════════════════════════════════════════════════
+[INFO]  Namespace : capacity-workshop
+[INFO]  Pod name  : oom-demo
+
+[INFO]  Step 1/4 — Deploying oom-demo pod (4Mi memory limit) …
+[OK]    Pod created — it will try to allocate 100MB against a 4Mi limit.
+
+[INFO]  Step 2/4 — Waiting for OOMKill (up to 30s) …
+[OK]    OOMKilled confirmed after ~3s.
+
+[INFO]  Step 3/4 — Checking OOMKilling events …
+LAST SEEN   TYPE      REASON      OBJECT         MESSAGE
+3s          Warning   OOMKilling  Pod/oom-demo   Memory limit reached, killed process ...
+
+[INFO]  Step 4/4 — Inspecting last termination state …
+
+  Exit code   : 137  (128 + 9 SIGKILL = 137 means OOMKilled)
+  Memory limit: 4Mi  (the container was killed for exceeding this)
+
+[OK]    This is the same signature you will see on real production OOMKills.
+
+  Standard debug workflow:
+  1. oc get events -n <namespace> --field-selector reason=OOMKilling
+  2. oc get pod <pod> -o jsonpath='{.status.containerStatuses[0].lastState.terminated}'
+  3. NAMESPACE=<ns> POD_SELECTOR=<pod> ~/module-03/resource-right-sizer.sh  ← P95 memory
+  4. Raise the memory limit by the P95 + 50% buffer the right-sizer recommends.
+
+[INFO]  Cleaning up oom-demo pod …
+[OK]    Done. oom-demo pod removed.
 ----
 
 [IMPORTANT]
