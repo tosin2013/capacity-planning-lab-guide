@@ -243,7 +243,7 @@ echo "RHACM Grafana: {hub_grafana_url}"
 
 Keep this open in a separate browser window - you'll need it during the simulation.
 
-This is your *baseline state* — all panels green, etcd at ~64 MB, pod density ~99 pods/node, and Capacity Runway at `-∞` (no measurable CPU growth trend):
+This is your *baseline state* — all panels green, etcd at ~64 MB, pod density ~99 pods/node, and Capacity Runway showing *Stable — no growth detected* (no measurable CPU growth trend):
 
 image::module-06-grafana-baseline.png[Baseline Grafana dashboard before simulation — Total Pods ~296 across all namespaces, CPU flat, etcd ~64 MB, pod density ~99 pods/node,align="center"]
 
@@ -460,7 +460,7 @@ In your RHACM Grafana dashboard, you should see:
 
 * Panel "Total Pods by Cluster" → rises by ~5–10 pods above your baseline (5 load pods + HPA may scale `critical-app` from 2 to 3+ replicas)
 * Panel "CPU: Requested vs Used" → clear spike visible on the right edge of the time series as `wrk` saturates `critical-app`
-* Panel "Capacity Runway" → may show a brief finite value as CPU usage surges; returns to `-∞` once load subsides
+* Panel "Capacity Runway" → may show a brief finite value (days) as HPA adds new pods with CPU requests; returns to *Stable — no growth detected* once CPU requests stabilise
 
 Exact pod counts vary by cluster. Focus on the *direction of change*, not a specific number.
 

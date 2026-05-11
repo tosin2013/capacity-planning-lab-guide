@@ -771,6 +771,8 @@ Example:
 The Capacity Runway panel shows *Stable — no growth detected* on a freshly deployed cluster because CPU requests have not changed over the 6-hour measurement window.
 This optional exercise uses kube-burner to add 15 pods with explicit CPU requests, making the panel transition from *Stable* to a real countdown in days — demonstrating exactly what an on-call engineer would see when a new application is rolled out.
 
+TIP: This exercise isolates the *CPU requests* signal — the specific metric that drives the Capacity Runway formula. xref:module-06.adoc[Module 6] shows a different angle: a real HTTP traffic surge causes HPA to add pods, which incidentally raises CPU requests too. Doing both lets you see the same panel respond to two different root causes: a deliberate batch rollout (here) vs. demand-driven autoscaling (Module 6).
+
 NOTE: The kube-burner binary was installed in Module 3 (`~/module-03/kube-burner`).
 If you have not completed Module 3, see the download instructions in xref:module-03.adoc#_part_2_download_lab_files[Module 3 Part 2].
 
