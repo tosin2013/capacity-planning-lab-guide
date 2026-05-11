@@ -597,7 +597,7 @@ The ConfigMap contains seven panels — all using Thanos data from every managed
 |Total Pods by Cluster |Bar gauge |`sum by (cluster)(kube_pod_info)`
 |CPU: Requested vs Used |Time series (A/B) |`kube_pod_container_resource_requests{resource="cpu"}` vs `node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate`
 |Memory: Requested vs Used |Time series (A/B) |`kube_pod_container_resource_requests{resource="memory"}` vs `container_memory_working_set_bytes`
-|Capacity Runway (Days) |Table |`(allocatable - requests) / (delta([6h]) * 4)` — shows *Stable — no growth detected* (green) when requests are not increasing
+|Capacity Runway (Days) |Table |`(allocatable - requests) / (delta(sum(...)[6h:5m]) * 4)` — shows *Stable — no growth detected* (green) when requests are not increasing
 |Pod Density (pods/node) |Stat |`kube_pod_info / kube_node_info{worker}`
 |etcd DB Size (MB) |Bar gauge |`etcd_debugging_mvcc_db_total_size_in_bytes / 1024 / 1024`
 |Top 10 Namespaces by CPU (30d) |Table |`topk(10, avg_over_time(...[30d]))`
@@ -856,10 +856,11 @@ to a real countdown:
 
 [NOTE]
 ====
-The runway number may look very short — for example, 2–5 days — even though the cluster is not really in danger.
-This is intentional and is a teaching moment: `delta([6h])` treats the *entire batch of new pods* as if it represents the last 6 hours of growth.
-Extrapolating that rate to 24 hours produces a high apparent daily growth rate, which compresses the runway.
-In a real production environment, growth is gradual and the denominator is much smaller, giving realistic runway values of months or years.
+The runway formula uses `delta(sum by (cluster) (...)[6h:5m])` — a *subquery* that evaluates the cluster-level total CPU requests at 5-minute intervals over 6 hours, then computes the change. This form correctly detects both gradual growth AND batch pod additions like this simulation.
+
+The runway number will likely be very short (hours or negative) if the simulation pushes total requests close to or above the allocatable CPU for the cluster. That is the correct and expected result — the formula is showing you exactly what an on-call engineer would see: *"at this growth rate, you run out of headroom very soon."*
+
+In a real production environment growth is slower and more gradual, giving realistic runway values of weeks, months, or years.
 ====
 
 ==== Step 8d — Clean up simulation deployments
