@@ -218,6 +218,7 @@ The observability components run on the *hub* cluster. Switch context to the hub
 
 [source,bash,subs="+attributes",role=execute]
 ----
+oc project {namespace}
 STUDENT_CTX=$(oc config current-context)
 echo "Student context saved: $STUDENT_CTX"
 oc login {hub_api_url} \
@@ -539,6 +540,7 @@ Your `$STUDENT_CTX` variable was set at the start of Part 1. Log into the hub cl
 
 [source,bash,subs="+attributes",role=execute]
 ----
+oc project {namespace}
 STUDENT_CTX=$(oc config current-context)
 echo "Student context: $STUDENT_CTX"
 oc login {hub_api_url} \

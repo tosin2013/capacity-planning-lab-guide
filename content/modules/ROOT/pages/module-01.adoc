@@ -159,7 +159,7 @@ oc get pods -A -o json | jq -r '
   .items[] |
   select(.spec.containers[].resources.requests != null) |
   "\(.metadata.namespace)\t\(.metadata.name)"
-' | sort | uniq -c | sort -rn | head -10
+' | sort | uniq -c | sort -rn | head -10 || true
 ----
 
 Now let's check the `{namespace}` namespace specifically:

@@ -151,12 +151,16 @@ if [[ "${P95_MEM_MIB}" == "0" || "${P95_MEM_MIB}" == ERROR* ]]; then
     | scalar_result 2>/dev/null || echo "0")
 fi
 
+# Derive deployment name from POD_SELECTOR by stripping trailing '.*'
+DEPLOY_NAME="${POD_SELECTOR%.*}"
+
 python3 - <<PYEOF
 import math
 
-p95_cpu_cores = float("${P95_CPU}")
-p95_mem_mib   = float("${P95_MEM_MIB}")
-namespace     = "${NAMESPACE}"
+p95_cpu_cores   = float("${P95_CPU}")
+p95_mem_mib     = float("${P95_MEM_MIB}")
+namespace       = "${NAMESPACE}"
+deployment_name = "${DEPLOY_NAME}"
 
 def ceil_to_10m(cores):
     """Round cores up to the nearest 10m (0.010 cores)."""
@@ -191,7 +195,7 @@ green = "\033[0;32m"
 reset = "\033[0m"
 print(f"{bold}  Apply with:{reset}")
 bslash = chr(92)
-print(f"{green}  oc set resources deployment load-generator -n {namespace} {bslash}")
+print(f"{green}  oc set resources deployment {deployment_name} -n {namespace} {bslash}")
 print(f"    --requests=cpu={cpu_req_m}m,memory={mem_req_mi}Mi {bslash}")
 print(f"    --limits=cpu={cpu_lim_m}m,memory={mem_lim_mi}Mi{reset}")
 print()
@@ -200,7 +204,7 @@ print("        Reduce the memory limit if OOMKills stop after right-sizing.")
 
 # Write the bare command to the apply file for APPLY=true mode
 apply_cmd = (
-    f"oc set resources deployment load-generator -n {namespace} "
+    f"oc set resources deployment {deployment_name} -n {namespace} "
     f"--requests=cpu={cpu_req_m}m,memory={mem_req_mi}Mi "
     f"--limits=cpu={cpu_lim_m}m,memory={mem_lim_mi}Mi"
 )
@@ -214,7 +218,7 @@ if [[ "${APPLY}" == "true" ]]; then
   info "Applying recommendation …"
   echo -e "  ${APPLY_CMD}"
   eval "${APPLY_CMD}" && success "Resources updated. Waiting for rollout …" || { echo ""; error "oc set resources failed."; }
-  oc rollout status deployment/load-generator -n "${NAMESPACE}" --timeout=60s
+  oc rollout status deployment/"${DEPLOY_NAME}" -n "${NAMESPACE}" --timeout=60s
   echo ""
   info "Verifying QoS class …"
   QOS=$(oc get pod -n "${NAMESPACE}" -l app=load-generator -o jsonpath='{.items[0].status.qosClass}' 2>/dev/null || echo "unknown")

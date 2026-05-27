@@ -578,19 +578,26 @@ time oc get pods -A --no-headers | wc -l
 real	0m0.342s   ← Baseline: 342ms to list all pods
 ----
 
-Now deploy the mass-scheduling test:
+Now deploy the mass-scheduling test in a dedicated namespace (no resource quota):
 
-[source,bash,role=execute,subs="+attributes"]
+[NOTE]
+====
+The `{namespace}` namespace has a ResourceQuota that caps total pods at 100, which would silently limit the density test.
+The density test runs in its own temporary namespace so the 400-pod target is reachable without touching the workshop quota.
+====
+
+[source,bash,role=execute]
 ----
-oc create deployment density-test --image=registry.access.redhat.com/ubi9/ubi-micro:latest --replicas=400 -n {namespace} -- sleep infinity
-oc set resources deployment density-test -n {namespace} --requests=cpu=10m,memory=16Mi --limits=cpu=50m,memory=32Mi
+oc new-project density-test-ns
+oc create deployment density-test --image=registry.access.redhat.com/ubi9/ubi-micro:latest --replicas=400 -n density-test-ns -- sleep infinity
+oc set resources deployment density-test -n density-test-ns --requests=cpu=10m,memory=16Mi --limits=cpu=50m,memory=32Mi
 ----
 
 Watch the scheduling progress:
 
-[source,bash,role=execute,subs="+attributes"]
+[source,bash,role=execute]
 ----
-watch -n 2 'oc get deployment density-test -n {namespace} && echo "" && oc get pods -n {namespace} --field-selector=status.phase!=Running | wc -l'
+watch -n 2 'oc get deployment density-test -n density-test-ns && echo "" && oc get pods -n density-test-ns --field-selector=status.phase!=Running | wc -l'
 ----
 
 .Sample Output (after 60 seconds)
@@ -689,6 +696,7 @@ Calculate overhead per pod:
 NODE=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[0].metadata.name}')
 MEM=$(oc adm top nodes "$NODE" --no-headers | awk '{print $4, $5}')
 POD_COUNT=$(oc get pods -A --field-selector spec.nodeName="$NODE" --no-headers | wc -l)
+# Note: counts pods across all namespaces including density-test-ns
 echo "Node: $NODE"
 echo "Memory usage: $MEM"
 echo "Pod count: $POD_COUNT pods"
@@ -721,11 +729,11 @@ The density-test pods are tiny (16Mi each) and mostly idle, so they're not gener
 
 === Part 6: Clean Up
 
-Remove the density test deployment:
+Remove the density test namespace (this also deletes all pods inside it):
 
-[source,bash,role=execute,subs="+attributes"]
+[source,bash,role=execute]
 ----
-oc delete deployment density-test -n {namespace}
+oc delete project density-test-ns
 ----
 
 Optionally, revert maxPods back to 250 (if this was just a test):

@@ -420,13 +420,22 @@ In this final lab, you'll create a 12-month capacity roadmap for your organizati
 
 === Step 1: Gather Your Data
 
-Run the `capacity-roadmap-generator.sh` script. It queries Prometheus directly to pull
+Download the `capacity-roadmap-generator.sh` script, then run it. It queries Prometheus directly to pull
 live values for pod count, worker nodes, CPU allocation and usage, etcd database size,
 and pod velocity — the same metrics you collected across Modules 1–5.
 
 [source,bash,role=execute]
 ----
-bash ~/examples/module-07/capacity-roadmap-generator.sh
+mkdir -p ~/module-07 && cd ~/module-07
+BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
+curl -fsSO $BASE/content/modules/ROOT/examples/module-07/capacity-roadmap-generator.sh
+chmod +x capacity-roadmap-generator.sh
+ls -lh
+----
+
+[source,bash,role=execute]
+----
+bash ~/module-07/capacity-roadmap-generator.sh
 ----
 
 The script writes two files:
@@ -440,7 +449,7 @@ The script writes two files:
 
 [source,bash]
 ----
-MONTHLY_COST_PER_NODE=300 NODE_CPU=16 bash ~/examples/module-07/capacity-roadmap-generator.sh
+MONTHLY_COST_PER_NODE=300 NODE_CPU=16 bash ~/module-07/capacity-roadmap-generator.sh
 ----
 
 Set `MONTHLY_COST_PER_NODE` to your actual cloud bill per worker node and `NODE_CPU` to the

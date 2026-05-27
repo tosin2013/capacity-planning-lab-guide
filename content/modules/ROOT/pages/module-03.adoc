@@ -477,13 +477,20 @@ The request value is the denominator — change it and you change everything:
 This is why right-sizing matters: it makes the formula meaningful.
 ====
 
-Create an HPA targeting 75% CPU utilization:
+Verify the HPA for `load-generator` — it was pre-deployed by the workshop setup so it's already configured to scale at 75% CPU:
 
-[source,bash,role=execute,subs="+attributes"]
+[NOTE]
+====
+The `load-generator` HPA is pre-deployed as part of the workshop sample applications.
+The goal of this step is to *read and understand* the HPA configuration, not create it.
+If you are running this in your own environment without the sample apps, create it with:
+
+[source,bash]
 ----
 oc autoscale deployment load-generator -n {namespace} \
   --min=1 --max=5 --cpu 75%
 ----
+====
 
 [source,bash,role=execute,subs="+attributes"]
 ----
