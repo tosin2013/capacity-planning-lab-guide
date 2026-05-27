@@ -756,6 +756,47 @@ This will trigger another MCO rollout (10-15 minutes per node). Only do this if:
 *For production*: Leave maxPods at 500 if your nodes have 64GB+ RAM and you have many small pods.
 ====
 
+[IMPORTANT]
+====
+*Wait for the MCO rollout to complete before starting Module 5.*
+
+Deleting the `KubeletConfig` triggers the Machine Config Operator to roll back every worker node
+one at a time. Each node is cordoned, drained, rebooted with the reverted config, then uncordoned.
+On a 3-node cluster this takes *30–45 minutes*. On larger clusters it can take longer.
+
+*If you start Module 5 while this rollout is in progress*, you will see nodes cycling through
+`Ready,SchedulingDisabled` → `NotReady` → `Ready` — which is alarming and unexplained without this context.
+
+Wait until the `worker` MachineConfigPool reports `UPDATED=true` and `DEGRADED=false`:
+====
+
+[source,bash,role=execute]
+----
+echo "Waiting for MCO rollback to complete (30-45 min)..."
+oc wait mcp/worker --for=condition=Updated=True --timeout=3600s
+----
+
+.Sample Output (when complete)
+[source,text]
+----
+machineconfigpool.machineconfiguration.openshift.io/worker condition met
+----
+
+[NOTE]
+====
+You can also watch the progress node-by-node while waiting:
+
+[source,bash]
+----
+oc get mcp -w
+----
+
+The `MACHINE COUNT`, `READY MACHINE COUNT`, and `UPDATED MACHINE COUNT` columns will converge.
+All three should show the same number when the rollout is done.
+
+Feel free to take a break — this is a good opportunity to review your notes from Parts 1–5 or read the Key Takeaways below.
+====
+
 == Lab 4 Summary: Density Decisions
 
 You've now experienced:

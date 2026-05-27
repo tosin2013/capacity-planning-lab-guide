@@ -352,6 +352,22 @@ Now run the right-sizer against your *actual* `load-generator` to get its right-
 NAMESPACE={namespace} ~/module-03/resource-right-sizer.sh
 ----
 
+[NOTE]
+====
+*Fresh cluster? P95 values may be low.*
+
+The right-sizer queries Prometheus for the *95th-percentile* CPU and memory usage over the past 7 days.
+On a cluster deployed today the script automatically falls back to a 1-day window, but a single day may
+still show only baseline idle usage rather than the peak load your application experiences under real traffic.
+
+*What to expect and what to do*:
+
+* The P95 numbers are correct for the data available — if the workload has only been running a few hours, the recommendation will be conservative (close to current idle usage).
+* This is actually a useful teaching moment: right-sizing with too short a window gives you a request that is too low and will trigger throttling or OOMKills the first time real traffic hits.
+* The `noisy-neighbor` deployment (scaled up in the next step) will spike CPU and give the right-sizer more signal. Rerunning after the noisy-neighbor test will show higher P95 values.
+* In production, always run the right-sizer after the workload has experienced a representative traffic pattern — ideally 7+ days including at least one peak window.
+====
+
 [WARNING]
 ====
 *Throttling Explained*:
@@ -688,6 +704,52 @@ NAMESPACE={namespace} POD_SELECTOR="<pod-name>" ~/module-03/resource-right-sizer
 4. *Investigate memory leak* if usage grows unbounded over time
 
 *Exit Code 137* always means OOMKilled (128 + 9 SIGKILL signal).
+====
+
+== Module 3 Cleanup: Restore ArgoCD State
+
+Before moving to Module 4, restore the `load-generator` deployment to its original resource settings.
+Module 3 experiments changed CPU and memory values — if you leave those changes in place, ArgoCD will
+show the deployment as *OutOfSync* and a future sync could reset your work mid-workshop.
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc set resources deployment/load-generator -n {namespace} \
+  --requests=cpu=10m,memory=128Mi \
+  --limits=cpu=200m,memory=256Mi
+oc rollout status deployment/load-generator -n {namespace} --timeout=60s
+----
+
+.Sample Output
+[source,text]
+----
+deployment.apps/load-generator resource requirements updated
+Waiting for deployment "load-generator" rollout to finish: 1 out of 1 new replicas have been updated...
+deployment "load-generator" successfully rolled out
+----
+
+Confirm the resources are restored:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc get deployment load-generator -n {namespace} \
+  -o jsonpath='requests cpu={.spec.template.spec.containers[0].resources.requests.cpu} memory={.spec.template.spec.containers[0].resources.requests.memory} | limits cpu={.spec.template.spec.containers[0].resources.limits.cpu} memory={.spec.template.spec.containers[0].resources.limits.memory}{"\n"}'
+----
+
+You should see: `requests cpu=10m memory=128Mi | limits cpu=200m memory=256Mi`
+
+[NOTE]
+====
+*Why this matters*:
+
+ArgoCD deployed `load-generator` with `requests: cpu=10m / memory=128Mi` and `limits: cpu=200m / memory=256Mi`.
+The right-sizer experiments in Parts 3–5 changed these values based on observed P95 usage.
+
+Restoring the original values here:
+
+* Clears the ArgoCD *OutOfSync* state — no surprise resets later in the workshop.
+* Gives Module 4's density calculations a consistent baseline.
+* Leaves the cluster in the state ArgoCD expects as the source of truth.
 ====
 
 == Lab 3 Summary: Developer Best Practices

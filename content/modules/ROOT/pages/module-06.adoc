@@ -423,14 +423,11 @@ This would:
 *For the simulation*, we're skipping this delay to keep the exercise moving.
 ====
 
-Simulate the nodes joining:
+Verify all schedulable nodes are available:
 
 [source,bash,role=execute]
 ----
-# The facilitator has pre-scaled the cluster with additional nodes
-# They will uncordon them now to simulate "new nodes joining"
-
-# Watch for node count to increase
+# Watch current schedulable node count
 watch -n 5 'oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l'
 ----
 
@@ -473,6 +470,7 @@ image::module-06-grafana-wave1-spike.png[Grafana dashboard during Wave 1 — Tot
 
 === Wave 2: The Node Failures (T+15 to T+30 minutes)
 
+ifdef::instructor[]
 [IMPORTANT]
 ====
 *Facilitator Action*:
@@ -498,6 +496,51 @@ oc get nodes -l node-role.kubernetes.io/worker --no-headers | awk '{print $1}' |
 * Pods on those nodes evict and reschedule
 * Remaining nodes experience CPU/memory pressure
 * Some pods may CrashLoopBackOff if they can't get resources
+====
+endif::instructor[]
+
+==== Your Action: Trigger the Node Failure Simulation
+
+Since you have cluster-admin access, you can run the failure simulation yourself.
+The following commands cordon one node (simulating an unreachable AWS availability zone),
+wait for pods to evict and reschedule, then leave it cordoned until Wave 4:
+
+[source,bash,role=execute]
+----
+# Identify the node to cordon (we cordon the first worker node in the list)
+FAILED_NODE=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers | awk '{print $1}' | head -1)
+echo "Simulating AZ failure — cordoning: $FAILED_NODE"
+oc adm cordon "$FAILED_NODE"
+----
+
+[source,bash,role=execute]
+----
+# Drain the cordoned node (evicts all non-DaemonSet pods, simulates the node shutdown)
+FAILED_NODE=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers \
+  | grep SchedulingDisabled | awk '{print $1}' | head -1)
+echo "Draining: $FAILED_NODE"
+oc adm drain "$FAILED_NODE" --ignore-daemonsets --delete-emptydir-data --force --grace-period=30
+----
+
+.Sample Output
+[source,textinfo]
+----
+Simulating AZ failure — cordoning: ip-10-0-145-209.us-east-2.compute.internal
+node/ip-10-0-145-209.us-east-2.compute.internal cordoned
+
+Draining: ip-10-0-145-209.us-east-2.compute.internal
+node/ip-10-0-145-209.us-east-2.compute.internal drained
+----
+
+[NOTE]
+====
+*What just happened*:
+
+* `oc adm cordon` marks the node `SchedulingDisabled` — the scheduler will not place new pods there.
+* `oc adm drain` evicts all pods from the node (except DaemonSets, which run on every node by design).
+* Kubernetes immediately reschedules evicted pods to the remaining Ready nodes.
+
+This is the *same operation* your team would run when AWS reports a degraded availability zone and you want to proactively move workloads away before the node becomes unreachable.
 ====
 
 ==== Your Actions: Triage the Outage

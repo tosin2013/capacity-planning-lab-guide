@@ -160,6 +160,29 @@ NAMESPACE={namespace} ./pod-velocity-calculator.sh
   RESULT: Add 1 worker node(s) this quarter to accommodate forecasted growth.
 ----
 
+[NOTE]
+====
+*Fresh cluster? Expect low pod velocity numbers.*
+
+The pod velocity formula counts pods whose `kube_pod_start_time` falls within the last 30 days.
+On a cluster deployed today you will see a very low count (often 0–10 pods in the 30-day window)
+because most pods started at cluster boot, not during the measurement window.
+
+This is *correct behavior*, not a script error. The model is telling you that the sample workload
+namespace has not yet accumulated meaningful deployment history.
+
+*What to do*:
+
+* Note the number you see and continue — the learning value is in understanding *how* the formula works, not in hitting a specific target number.
+* For a more representative result, rerun with a shorter window that matches the cluster age:
++
+[source,bash,subs="+attributes"]
+----
+NAMESPACE={namespace} WINDOW_DAYS=1 ./pod-velocity-calculator.sh
+----
+* In your production environment with months of history, these numbers will be much more meaningful.
+====
+
 [TIP]
 ====
 *Understanding what the script queries*:
