@@ -233,7 +233,7 @@ validate_html_attributes() {
         "$www_dir/modules/index.html" \
         "$www_dir/modules/module-01.html" \
         "$www_dir/modules/module-03.html" \
-        "$www_dir/modules/module-05.html"
+        "$www_dir/modules/module-06.html"
     do
         [ -f "$html_file" ] || { log_warning "HTML not found: $html_file"; continue; }
         local page
@@ -387,7 +387,7 @@ test_cluster_deployment() {
     mkdir -p "$TEST_OUTPUT_DIR/cluster-html"
     local failed=0
 
-    for page in index module-01 module-03 module-05; do
+    for page in index module-01 module-03 module-06; do
         local url="${base_url}/content/modules/${page}.html"
         local out="$TEST_OUTPUT_DIR/cluster-html/${page}.html"
 

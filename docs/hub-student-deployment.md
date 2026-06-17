@@ -46,7 +46,7 @@ bash scripts/provision-grafana-student-access.sh \
 # Then tell each student to log out of Grafana and log back in via the workshop-students IDP.
 ```
 
-> **Why update hub_rhacm_url after the initial run?** The `hub_rhacm_url` in each student var file pre-populates the Module 5 RHACM console link in the AgnosticD provision output. It cannot be filled in before the hub exists. The Showroom lab guide itself always uses the correct URL (injected by `deploy-multiuser-showroom.sh` from the actual hub output), so student clusters are fully functional after Step C — Step E just ensures the `agnosticd_user_info` log output is also correct.
+> **Why update hub_rhacm_url after the initial run?** The `hub_rhacm_url` in each student var file pre-populates the Module 6 RHACM console link in the AgnosticD provision output. It cannot be filled in before the hub exists. The Showroom lab guide itself always uses the correct URL (injected by `deploy-multiuser-showroom.sh` from the actual hub output), so student clusters are fully functional after Step C — Step E just ensures the `agnosticd_user_info` log output is also correct.
 
 ```bash
 # Re-run safely after a failure (already-healthy clusters are skipped):
@@ -74,7 +74,7 @@ The manual step-by-step instructions below remain useful for understanding the t
 │  ├── Grafana (read-only + dev)      │
 │  └── Showroom lab guide             │
 └─────────────┬───────────────────────┘
-              │  RHACM import (Module 5)
+              │  RHACM import (Module 6)
 ┌─────────────▼───────────────────────┐
 │  Student cluster (student-NN)       │
 │  ├── sample apps (capacity-workshop)│
@@ -436,7 +436,7 @@ Check `status.health.status == Healthy` and `status.sync.status == Synced`.
 ERROR: the role 'ocp4_workload_lightspeed' was not found in ...
 ```
 
-**Cause**: `ocp4_workload_lightspeed` is a workshop-specific role for Module 8 (OpenShift Lightspeed). It does not ship with the standard agnosticd-v2 distribution.
+**Cause**: `ocp4_workload_lightspeed` is a workshop-specific role for Module 9 (OpenShift Lightspeed). It does not ship with the standard agnosticd-v2 distribution.
 
 **Fix**: Keep it commented out in `student-NN.yml` until the role is available:
 

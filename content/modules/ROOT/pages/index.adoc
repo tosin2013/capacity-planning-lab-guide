@@ -41,7 +41,7 @@ You are participating in a **multi-user workshop** where each student has their 
 * You have **complete cluster-admin access** to your SNO cluster
 * All exercises run on your isolated cluster - you won't interfere with other students
 * Your cluster resources: 8 vCPU, 16GB RAM, 120GB storage
-* Infrastructure labs (Module 4: node density, maxPods tuning) work with full permissions
+* Infrastructure labs (Module 5: node density, maxPods tuning) work with full permissions
 ====
 endif::[]
 
@@ -60,7 +60,7 @@ You are using a **shared workshop environment** on the hub cluster.
 
 * You have namespace-scoped permissions
 * All exercises run within your dedicated namespace
-* Some infrastructure labs may have limited permissions (Module 4)
+* Some infrastructure labs may have limited permissions (Module 5)
 ====
 endif::[]
 
@@ -128,7 +128,7 @@ oc get pods -n {namespace}
 ====
 * *This terminal* — runs on the hub cluster (Showroom). Use it to SSH to your student bastion and for browser links.
 * *Your student cluster* — `{student-cluster-bastion}` — runs all workshop sample apps, Prometheus, and simulation tools. All `oc` commands throughout the modules target this cluster.
-* *RHACM + Grafana* — run on the hub cluster and provide a fleet-wide view across all student clusters. You access them via browser (Quick Access Links above) during Module 5.
+* *RHACM + Grafana* — run on the hub cluster and provide a fleet-wide view across all student clusters. You access them via browser (Quick Access Links above) during Module 6.
 
 You should see after connecting:
 
@@ -169,37 +169,42 @@ You should see after connecting:
 |
 
 |13:45
-|xref:module-04.adoc[Module 4: Infra Track]
+|xref:module-04.adoc[Module 4: Right-Sizing Activity]
+|Ops-meets-dev: diagnose and fix a mis-sized app using dashboards
+|Lab
+
+|14:45
+|xref:module-05.adoc[Module 5: Infra Track]
 |Multi-cluster sizing, density, and etcd limits
 |Lab
 
-|15:15
-|xref:module-05.adoc[Module 5: Fleet Observability]
+|16:15
+|xref:module-06.adoc[Module 6: Fleet Observability]
 |Custom multi-cluster Grafana capacity dashboards
 |Lab
 
-|16:15
+|17:15
 |*Break*
 |
 |
 
-|16:30
-|xref:module-06.adoc[Module 6: The Integration Challenge]
+|17:30
+|xref:module-07.adoc[Module 7: The Integration Challenge]
 |Live simulation: Product launch spike + AZ failure
 |Game/Lab
 
-|17:30
-|xref:module-07.adoc[Module 7: Strategic Roadmapping]
+|18:30
+|xref:module-08.adoc[Module 8: Strategic Roadmapping]
 |Building the 12-month capacity plan
 |Exercise
 
-|18:00
+|19:00
 |*Wrap-up & Q&A*
 |
 |
 
-|18:30 _(optional)_
-|xref:module-08.adoc[Module 8: AI-Assisted Capacity Operations _(Optional)_]
+|19:30 _(optional)_
+|xref:module-09.adoc[Module 9: AI-Assisted Capacity Operations _(Optional)_]
 |OpenShift Lightspeed as a forecasting co-pilot — developer, infra & planning queries; granite vs. qwen3 model comparison
 |Lab
 
@@ -212,7 +217,7 @@ This workshop uses:
 * *OpenShift Container Platform*: 4.21+
 * *Red Hat Advanced Cluster Management (RHACM)*: 2.16+
 * *Monitoring*: Prometheus, Thanos, Alertmanager, Grafana
-* *AI Assistant* _(Module 8, optional)_: OpenShift Lightspeed 1.0 backed by RHDP LiteMaaS (IBM Granite 3.2 8B / Qwen3 14B)
+* *AI Assistant* _(Module 9, optional)_: OpenShift Lightspeed 1.0 backed by RHDP LiteMaaS (IBM Granite 3.2 8B / Qwen3 14B)
 
 == Getting Started
 

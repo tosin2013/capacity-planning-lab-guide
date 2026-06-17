@@ -141,7 +141,7 @@ For capacity planning specifically, without a fleet view you cannot run pod velo
 
 ## Try it in the lab
 
-Workshop operators can clone the guide at [https://github.com/tosin2013/capacity-planning-lab-guide](https://github.com/tosin2013/capacity-planning-lab-guide). Module 5 walks through the hands-on RHACM observability setup, allowlist configuration, and the multi-cluster Grafana dashboard step by step.
+Workshop operators can clone the guide at [https://github.com/tosin2013/capacity-planning-lab-guide](https://github.com/tosin2013/capacity-planning-lab-guide). Module 6 walks through the hands-on RHACM observability setup, allowlist configuration, and the multi-cluster Grafana dashboard step by step.
 
 If you want a live environment instead of wiring everything from scratch, **Red Hat Demo Platform (RHDP)** at [rhdp.redhat.com](https://rhdp.redhat.com) hosts the complete workshop with hub and student OpenShift clusters pre-provisioned on AWS.
 

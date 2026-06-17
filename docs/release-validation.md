@@ -56,7 +56,7 @@ bash scripts/validate-module-commands.sh student-01
 The script:
 1. Reads bastion credentials from `student-info.txt`
 2. SSHes to the target bastion
-3. Runs every version-sensitive `oc` command from modules 3, 4, and 6 using `--dry-run=client` where applicable
+3. Runs every version-sensitive `oc` command from modules 3, 4, 5, and 7 using `--dry-run=client` where applicable
 4. Prints `PASS`/`FAIL` per command and a summary
 
 Expected output (all green):
@@ -105,23 +105,32 @@ The table below lists every version-sensitive `oc` command in the lab modules. C
 | `oc rollout status deployment/... --timeout=60s` | `module-03.adoc:523,545` | Stable |
 | `oc adm top pods -n ...` / `oc adm top pod -l ...` | `module-03.adoc:178,289` | Depends on metrics-server; output columns may vary |
 
-### Module 4 — Node Density
+### Module 4 — Right-Sizing Activity
 
 | Command | File:Line | Notes |
 |---------|-----------|-------|
-| `oc create deployment density-test --image=... --replicas=400 -- sleep infinity` | `module-04.adoc:579` | `-- sleep infinity` argument separator; validates with `--dry-run=client` |
-| `oc set resources deployment density-test --requests=... --limits=...` | `module-04.adoc:580` | Stable |
-| `oc adm top nodes -l node-role.kubernetes.io/worker` | `module-04.adoc` | Depends on metrics-server |
+| `oc apply -f checkout-api-bad.yaml -n ...` | `module-04.adoc` | Deployment manifest; validates with `--dry-run=client` |
+| `oc set resources deployment checkout-api --requests=... --limits=...` | `module-04.adoc` | Stable |
+| `oc adm top pods -n ... -l app=checkout-api` | `module-04.adoc` | Depends on metrics-server |
+| `oc delete deployment checkout-api -n ...` | `module-04.adoc` | Cleanup; validates with `--dry-run=client` |
 
-### Module 6 — Node Lifecycle / Scaling
+### Module 5 — Node Density
 
 | Command | File:Line | Notes |
 |---------|-----------|-------|
-| `oc adm cordon <node>` | `module-06.adoc:489` | Stable |
-| `oc adm drain <node> --ignore-daemonsets --delete-emptydir-data --force --grace-period=30` | `module-06.adoc:493` | `--delete-emptydir-data` replaced `--delete-local-data` in OCP 4.8; verify flag name each release |
-| `oc adm uncordon <node>` | `module-06.adoc:869` | Stable |
-| `oc scale machineset <name> -n openshift-machine-api --replicas=N` | `module-06.adoc:414` | Stable; validates with `--dry-run=client` |
-| `oc adm top nodes` | `module-06.adoc` | Stable |
+| `oc create deployment density-test --image=... --replicas=400 -- sleep infinity` | `module-05.adoc` | `-- sleep infinity` argument separator; validates with `--dry-run=client` |
+| `oc set resources deployment density-test --requests=... --limits=...` | `module-05.adoc` | Stable |
+| `oc adm top nodes -l node-role.kubernetes.io/worker` | `module-05.adoc` | Depends on metrics-server |
+
+### Module 7 — Node Lifecycle / Scaling
+
+| Command | File:Line | Notes |
+|---------|-----------|-------|
+| `oc adm cordon <node>` | `module-07.adoc` | Stable |
+| `oc adm drain <node> --ignore-daemonsets --delete-emptydir-data --force --grace-period=30` | `module-07.adoc` | `--delete-emptydir-data` replaced `--delete-local-data` in OCP 4.8; verify flag name each release |
+| `oc adm uncordon <node>` | `module-07.adoc` | Stable |
+| `oc scale machineset <name> -n openshift-machine-api --replicas=N` | `module-07.adoc` | Stable; validates with `--dry-run=client` |
+| `oc adm top nodes` | `module-07.adoc` | Stable |
 
 ---
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # check-etcd-health.sh
-# Module 6 — The Integration Challenge: Black Friday Chaos Game
+# Module 7 — The Integration Challenge: Black Friday Chaos Game
 #
 # Queries the student cluster Prometheus API to report etcd database size
 # across all members and checks against the warning/hard-limit thresholds
 # from Module 4.
 #
 # Usage:
-#   bash ~/module-06/check-etcd-health.sh
+#   bash ~/module-07/check-etcd-health.sh
 #
 # No environment variables required. Run from any directory on the bastion.
 
@@ -30,7 +30,7 @@ command -v oc      &>/dev/null || error "'oc' not found. Run this script on your
 command -v curl    &>/dev/null || error "'curl' not found."
 command -v python3 &>/dev/null || error "'python3' not found."
 
-header "Module 6 — etcd Health Check"
+header "Module 7 — etcd Health Check"
 
 # ── Step 1: Discover Prometheus ───────────────────────────────────────────────
 echo ""

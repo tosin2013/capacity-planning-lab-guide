@@ -748,7 +748,7 @@ The right-sizer experiments in Parts 3–5 changed these values based on observe
 Restoring the original values here:
 
 * Clears the ArgoCD *OutOfSync* state — no surprise resets later in the workshop.
-* Gives Module 4's density calculations a consistent baseline.
+* Gives Module 5's density calculations a consistent baseline.
 * Leaves the cluster in the state ArgoCD expects as the source of truth.
 ====
 
@@ -792,9 +792,9 @@ Many developers resist setting requests because they feel like "quotas" or "limi
 
 == Next Steps
 
-In xref:module-04.adoc[Module 4: Infrastructure Track - Fleet Architecture & Sizing], we shift to the platform engineer perspective. You'll learn node density math, etcd limits, and when to split clusters versus grow them.
+In xref:module-04.adoc[Module 4: The Right-Sizing Activity], you'll put the right-sizing skills from this module into practice with a real-world ops-meets-dev scenario. You'll use Grafana dashboards to diagnose a deliberately mis-sized application and collaboratively fix it.
 
-The skills from this module (accurate requests) directly feed into Module 4's capacity calculations. If requests are wrong, density calculations are wrong, and you'll buy the wrong amount of infrastructure.
+The skills from this module (accurate requests) directly feed into Module 5's capacity calculations. If requests are wrong, density calculations are wrong, and you'll buy the wrong amount of infrastructure.
 
 == Further reading
 

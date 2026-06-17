@@ -1,4 +1,4 @@
-= Module 6: The Integration Challenge - Black Friday Chaos Game
+= Module 6: Fleet Observability with RHACM
 
 _Duration: 60 minutes_
 
@@ -7,59 +7,182 @@ _Duration: 60 minutes_
 
 By the end of this module, you will be able to:
 
-* Apply capacity planning skills under simulated production pressure
-* Make real-time decisions about scaling, throttling, and resource allocation during an incident
-* Use RHACM Observability dashboards to diagnose multi-cluster capacity issues
-* Understand emergency capacity governance trade-offs (cost vs availability)
-* Experience the consequences of poor capacity planning in a safe environment
+* Enable Multi-Cluster Observability in Red Hat Advanced Cluster Management (RHACM)
+* Customize metric allowlists to reduce storage costs while maintaining capacity visibility
+* Build custom Grafana dashboards that aggregate capacity metrics across multiple clusters
+* Implement showback/chargeback reporting using Prometheus federation
 
-[#scenario]
-== The Scenario: Black Friday + AWS Outage
+[#rhacm-observability]
+== Understanding RHACM Multi-Cluster Observability
 
-*Date*: Black Friday (the biggest shopping day of the year)
-*Time*: 11:45 AM EST
-*Your Role*: Platform Engineering On-Call Lead
+Red Hat Advanced Cluster Management provides a centralized observability platform for monitoring dozens or hundreds of OpenShift clusters from a single pane of glass.
 
-*Situation*:
+=== The Architecture
 
-Your company runs a multi-tenant e-commerce platform on OpenShift across 3 AWS regions (us-east-1, us-west-2, eu-west-1). Normal daily traffic is 10,000 requests/second. Black Friday traffic typically spikes to 100,000 requests/second.
+RHACM Observability consists of:
 
-*11:50 AM*: Traffic starts ramping up. HPAs are scaling pods as expected.
+[cols="2,3,3",options="header"]
+|===
+|Component |Purpose |Location
 
-*11:58 AM*: AWS reports "degraded performance" in us-east-1 (your primary region). Two availability zones are experiencing network issues.
+|*Thanos*
+|Long-term metric storage and querying
+|Hub cluster
 
-*12:00 PM*: 30% of your worker nodes in us-east-1 become unreachable. Pods are evicting. Traffic is failing over to us-west-2, which is now overloaded.
+|*Grafana*
+|Dashboard visualization
+|Hub cluster
 
-*Your Mission*:
+|*Prometheus*
+|Metric collection per cluster
+|Each managed cluster
 
-Keep the platform online for the next 60 minutes using the capacity planning skills from Modules 1-5. Every decision has trade-offs:
+|*metrics-collector*
+|Forwards metrics from managed → hub
+|Each managed cluster
 
-* Scale up → costs spike, but customers stay happy
-* Throttle traffic → save money, but lose sales
-* Fail over to another region → avoids outage, but that region might also overload
-* Emergency node addition → takes 15 minutes, might be too late
+|*observability-alertmanager*
+|Centralized alerting
+|Hub cluster
+|===
 
 [IMPORTANT]
 ====
-*Game Rules*:
+*The Data Flow*:
 
-1. *This is a simulation* - we're using pre-deployed workloads and scripts to mimic the scenario
-2. *You have limited "budget"* - every node you add costs $200/hour (simulated)
-3. *Success criteria*:
-   - Keep >95% request success rate for 60 minutes
-   - Spend <$5,000 in emergency capacity
-   - No customer-facing service goes down completely
-4. *You'll work in teams* - platform team vs application team perspectives
-5. *Facilitator will inject chaos* - node failures, traffic spikes, etcd pressure
+```
+Managed Cluster 1 (Prometheus) ──┐
+                                  │
+Managed Cluster 2 (Prometheus) ──┼──→ Thanos (Hub) ──→ Grafana (Hub)
+                                  │
+Managed Cluster 3 (Prometheus) ──┘
+```
+
+*Key Benefits*:
+
+1. *Unified Query Language*: Use PromQL to query metrics across all clusters simultaneously
+2. *Cost Efficiency*: Managed clusters only forward a subset of metrics (configurable via allowlists)
+3. *Historical Analysis*: Thanos stores metrics for 30+ days (vs Prometheus' 15 days)
+4. *Cross-Cluster Correlation*: Compare capacity trends across dev/staging/prod environments
+====
+
+=== The Default Metrics Problem
+
+By default, RHACM Observability collects *all* Prometheus metrics from managed clusters. For a cluster with 1000 pods, this can be:
+
+[source,text]
+----
+Estimated metric volume per cluster:
+- 500,000 time series (pods × metrics per pod)
+- 2 samples/min per time series
+- 30-day retention
+
+Total: 500K × 2 × 60 × 24 × 30 = 43 billion samples
+Storage: ~500GB per cluster per month (uncompressed)
+----
+
+[WARNING]
+====
+*The Observability Cost Explosion*:
+
+If you manage 20 clusters and collect all metrics:
+
+```
+20 clusters × 500GB/month = 10TB/month observability storage
+```
+
+*Most of these metrics are useless for capacity planning* (detailed pod network stats, individual container CPU usage by core, etc.).
+
+*Solution*: Use metric allowlists to forward only the 50-100 metrics you actually need for capacity dashboards.
+====
+
+=== The Capacity Metric Allowlist
+
+For capacity planning, you only need:
+
+[cols="2,3",options="header"]
+|===
+|Metric Family |Example Metrics
+
+|*Node Capacity*
+|`kube_node_status_allocatable`, `node_memory_MemTotal_bytes`
+
+|*Pod Requests*
+|`kube_pod_container_resource_requests`
+
+|*Actual Usage*
+|`node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate` (recording rule), `container_memory_working_set_bytes`
+
+|*etcd Health*
+|`etcd_debugging_mvcc_db_total_size_in_bytes`, `etcd_server_has_leader`
+
+|*Deployment Scale*
+|`kube_deployment_spec_replicas`, `kube_deployment_status_replicas_available`
+
+|*HPA Metrics*
+|`kube_horizontalpodautoscaler_status_current_replicas`
+|===
+
+[TIP]
+====
+*Estimated Storage Reduction*:
+
+* Default (all metrics): 500GB/cluster/month
+* Capacity-focused allowlist: 25GB/cluster/month
+
+*Savings*: 95% reduction in observability storage costs!
+====
+
+== Why Multi-Cluster Observability Matters for Capacity
+
+Consider this real-world scenario:
+
+[source,text]
+----
+Your organization has:
+- 5 production clusters (US-East, US-West, EU, APAC, Edge)
+- 3 staging clusters
+- 10 dev clusters
+
+Total: 18 clusters
+
+Question: "How many worker nodes do we need to add next quarter across all environments?"
+----
+
+*Without RHACM Observability*:
+* Log into 18 separate Prometheus instances
+* Run the Pod Velocity query 18 times
+* Export to Excel, manually aggregate
+* Miss clusters you forgot about
+
+*With RHACM Observability*:
+* Single PromQL query: `sum by (cluster) (rate(kube_pod_created[30d]))`
+* One Grafana dashboard shows all 18 clusters
+* Automated alerting when any cluster approaches capacity
+
+[IMPORTANT]
+====
+*The Fleet Mindset Shift*:
+
+Capacity planning at scale requires thinking about clusters as *cattle, not pets*:
+
+* You can't manually SSH into each cluster
+* You need automated discovery of new clusters
+* Standardized dashboards must work for all clusters
+* Capacity policies should be fleet-wide, with cluster-specific overrides
+
+RHACM Observability is the foundation for this fleet-centric approach.
 ====
 
 [#lab6]
-== Lab 6: Black Friday Simulation
+== Lab 6: The God's-Eye Dashboard
 
 [NOTE]
 ====
-All terminal commands in this lab run on your *student cluster*.
-If your SSH session ended, reconnect before continuing:
+This lab has two access paths:
+
+* *Browser* — open the *RHACM Console* and *Grafana* links from the Quick Access panel on the introduction page. These run on the hub cluster.
+* *Terminal (student cluster)* — some steps apply `oc` commands to your student cluster to configure the RHACM Observability addon. Reconnect if needed:
 
 [source,bash,subs="+attributes",role=execute]
 ----
@@ -69,167 +192,437 @@ ssh lab-user@{student-cluster-bastion}
 SSH password: `{student-cluster-password}`
 ====
 
-=== Pre-Simulation Setup
+In this hands-on lab, you'll enable RHACM Observability, customize the metric allowlist to reduce costs, and deploy a pre-built multi-cluster capacity dashboard — without clicking through any browser UI until the final step.
 
-Before we start the chaos, download the lab files and establish baseline metrics.
+=== Download Lab Files
 
-==== Download Lab Files
-
-Download the kube-burner job configs for Waves 1 and 3.
-The kube-burner binary was installed in Module 3 and can be reused here.
+Download the Module 6 dashboard ConfigMap at the start. It is used in Part 4 to apply the dashboard to RHACM Grafana.
 
 [source,bash,subs="+attributes",role=execute]
 ----
 mkdir -p ~/module-06 && cd ~/module-06
 BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
-curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave1-traffic-spike.yaml
-curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave1-load-pod.yaml
-curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave3-etcd-pressure.yaml
-curl -fsSO $BASE/content/modules/ROOT/examples/module-06/wave3-pressure-deploy.yaml
-curl -fsSO $BASE/content/modules/ROOT/examples/module-06/check-etcd-health.sh
-chmod +x check-etcd-health.sh
+curl -fsSO $BASE/content/modules/ROOT/examples/module-06/module-5---multi-cluster-capacity-planning.yaml
 ls -lh
 ----
 
 .Sample Output
 [source,text]
 ----
--rwxr-xr-x. 1 lab-user lab-user 3.1K Apr 22 check-etcd-health.sh
--rw-r--r--. 1 lab-user lab-user  892 Apr 22 wave1-load-pod.yaml
--rw-r--r--. 1 lab-user lab-user  748 Apr 22 wave1-traffic-spike.yaml
--rw-r--r--. 1 lab-user lab-user  820 Apr 22 wave3-etcd-pressure.yaml
--rw-r--r--. 1 lab-user lab-user  776 Apr 22 wave3-pressure-deploy.yaml
+-rw-r--r--. 1 lab-user lab-user 7.0K Apr 21 module-5---multi-cluster-capacity-planning.yaml
 ----
 
-Verify the kube-burner binary from Module 3 is still available:
+=== Part 1: Verify RHACM Observability is Enabled
+
+The observability components run on the *hub* cluster. Switch context to the hub before running these checks — this follows the same pattern as Module 2 Part 4:
 
 [source,bash,subs="+attributes",role=execute]
 ----
-~/module-03/kube-burner version
+oc project {namespace}
+STUDENT_CTX=$(oc config current-context)
+echo "Student context saved: $STUDENT_CTX"
+oc login {hub_api_url} \
+  --username={hub_username} \
+  --password={hub_password} \
+  --insecure-skip-tls-verify=true
+----
+
+[NOTE]
+====
+*For This Workshop*:
+
+RHACM Observability has been pre-configured by the AgnosticD workload. If you're deploying this in your own environment, you would need to:
+
+1. Create an S3-compatible object storage bucket (AWS S3, Noobaa, MinIO)
+2. Create a `thanos-object-storage` Secret with bucket credentials
+3. Create a `MultiClusterObservability` custom resource
+
+Full instructions: https://access.redhat.com/documentation/en-us/red_hat_advanced_cluster_management_for_kubernetes/2.9/html/observability/observability-enable
+====
+
+Check the observability components:
+
+[NOTE]
+====
+*Admin-only view*: The `open-cluster-management-observability` namespace is restricted to cluster administrators. As a workshop student (`{hub_username}`) you will get a `Forbidden` error if you run this command directly — this output is shown for reference so you understand what was pre-configured on your behalf.
+
+The hub admin (or AgnosticD provisioning automation) ran:
+
+[source,bash]
+----
+oc get pods -n open-cluster-management-observability
+----
+
+.Reference Output — what the hub admin sees
+[source,textinfo]
+----
+NAME                                                  READY   STATUS    RESTARTS   AGE
+observability-alertmanager-0                          3/3     Running   0          5d
+observability-alertmanager-1                          3/3     Running   0          5d
+observability-grafana-7f9d8c8b5d-4xj2p               3/3     Running   0          5d
+observability-grafana-7f9d8c8b5d-9lkz8               3/3     Running   0          5d
+observability-observatorium-api-66c7d9d5fb-k5t7l     1/1     Running   0          5d
+observability-thanos-compact-0                        1/1     Running   0          5d
+observability-thanos-query-7c9d4f8b6d-p2x5k          1/1     Running   0          5d
+observability-thanos-receive-default-0                1/1     Running   0          5d
+observability-thanos-store-shard-0-0                  1/1     Running   0          5d
+----
+====
+
+[TIP]
+====
+*Key Components Explained*:
+
+* `thanos-receive`: Ingests metrics forwarded from managed clusters
+* `thanos-query`: Provides the PromQL query interface (used by Grafana)
+* `thanos-store`: Queries long-term storage (S3)
+* `thanos-compact`: Compresses and downsamples old metrics (hourly → daily → weekly)
+* `grafana`: Dashboard UI
+====
+
+=== Part 2: Access the RHACM Grafana Dashboard
+
+Get the Grafana route:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+echo "RHACM Grafana: {grafana_url}"
+----
+
+Or click directly: link:{grafana_url}[{grafana_url},window=_blank]
+
+Open this URL in a new browser tab. You'll be prompted to log in with your OpenShift credentials.
+
+Once logged in, you'll see the default RHACM dashboards:
+
+* *ACM - Clusters Overview*: Health status of all managed clusters
+* *ACM - Kubernetes / Compute Resources / Cluster*: CPU/Memory by cluster
+* *ACM - Kubernetes / Compute Resources / Namespace*: Resource usage by namespace
+
+ifdef::user[]
+[IMPORTANT]
+.Multi-User Mode: Unified Fleet Observability
+====
+**Grafana runs on the hub cluster and shows metrics from ALL student SNO clusters.**
+
+This is intentional! RHACM's multi-cluster observability is designed for fleet management, where you monitor dozens or hundreds of clusters from a single dashboard.
+
+*What You'll See:*
+
+* **Cluster dropdown** shows multiple clusters: `local-cluster` (hub) + all student SNO clusters (`sno-{guid}-user1`, `sno-{guid}-user2`, etc.)
+* **Metrics aggregation**: PromQL queries like `sum by (cluster)` show data from all clusters side-by-side
+* **Your cluster**: Look for `sno-{guid}-{user}` in the cluster dropdown to filter to your SNO cluster
+
+*Why This Is Valuable:*
+
+In production, platform teams manage multiple clusters (dev, staging, prod, region-specific) from a single RHACM hub. You're experiencing real fleet observability!
+
+*Filtering to Your Cluster:*
+
+When building dashboards, use the `cluster` label to filter:
+
+[source,promql]
+----
+# All clusters
+sum by (cluster) (node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate)
+
+# Your cluster only
+sum by (cluster) (node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate{cluster="sno-{guid}-{user}"})
+----
+====
+endif::[]
+
+ifndef::user[]
+[NOTE]
+.Single-User Mode: Hub Cluster Only
+====
+In single-user mode, Grafana shows metrics from the hub cluster (`local-cluster`). All workshop workloads run in the `{namespace}` namespace on this cluster.
+====
+endif::[]
+
+[NOTE]
+====
+*Facilitator Demo Opportunity*:
+
+Walk through the "ACM - Kubernetes / Compute Resources / Cluster" dashboard and point out:
+
+1. The "Cluster" dropdown at the top (shows all managed clusters)
+2. CPU/Memory usage graphs (actual vs requested)
+3. Pod count over time
+4. Network I/O
+
+*Question for class*: "How would you use this dashboard to identify over-provisioned clusters?"
+
+*Answer*: Look for clusters with high "Requested" but low "Usage" - those are wasting capacity.
+====
+
+[NOTE]
+====
+*CPU Used and Memory Used lines will appear empty at this point.*
+
+The custom metric allowlist has been pre-configured with `container_memory_working_set_bytes`. CPU usage is provided by the `node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate` recording rule already forwarded by the RHACM default allowlist. It can take *2–5 minutes* for metrics to start flowing from managed clusters into Thanos. In Part 3 you will inspect the allowlist and understand which metrics drive each panel.
+====
+
+=== Part 3: Understanding the Metric Allowlist
+
+RHACM Observability does not forward every metric from every cluster to Thanos — that would consume enormous bandwidth and object storage. Instead, a *custom allowlist* ConfigMap named `observability-metrics-custom-allowlist` tells each cluster's `metrics-collector` exactly which metrics to ship.
+
+[NOTE]
+====
+*Who manages the allowlist?*
+
+In production, the allowlist is an *administrator or SRE responsibility* — not something application developers or workshop students change. In this workshop the allowlist was pre-configured by the hub cluster automation at provisioning time so that all modules work correctly from day one.
+
+This section shows you how to read and understand it, which is a practical skill for any OpenShift platform engineer who needs to know why a particular metric does or does not appear in a Grafana panel.
+====
+
+==== How the allowlist works
+
+RHACM merges the configmap content into the `--match` arguments of each managed cluster's `metrics-collector` pod. There are two filter types:
+
+[cols="1,2,2",options="header"]
+|===
+|Type |Format |Example
+|`names` |Exact metric name — matched as `__name__="<value>"` |`kube_pod_start_time`
+|`matches` |Any valid PromQL label selector |`__name__=~"kube_pod_.*"` — all kube-state-metrics pod series
+|===
+
+If the ConfigMap *exists*, only listed metrics are forwarded.
+If it *does not exist*, the RHACM default allowlist applies (hundreds of metrics, but not all).
+This is why adding a metric to the configmap is sometimes the only way to make a custom Grafana panel show data.
+
+==== Inspect the pre-configured allowlist
+
+You are already logged into the hub from Part 1. Run:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc get configmap observability-metrics-custom-allowlist \
+  -n open-cluster-management-observability -o yaml
+----
+
+.Sample Output
+[source,yaml]
+----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-metrics-custom-allowlist
+  namespace: open-cluster-management-observability
+  labels:
+    demo.redhat.com/application: capacity-workshop
+data:
+  metrics_list.yaml: |
+    names:
+      # Module 2 — pod velocity dashboard (panels 1 & 2)
+      - kube_pod_start_time
+
+      # Module 2 panel 3 + Module 6 deployment scale view
+      - kube_deployment_spec_replicas
+      - kube_deployment_status_replicas_available
+      - kube_deployment_created
+
+      # Module 6 — HPA monitoring panels
+      - kube_horizontalpodautoscaler_spec_target_metric
+      - kube_horizontalpodautoscaler_status_current_replicas
+      - kube_horizontalpodautoscaler_status_desired_replicas
+
+      # Module 6 Panel 5 — pod density (pods/node denominator)
+      - kube_node_info
+
+      # Module 6 Panel 6 — etcd DB size gauge (warn at 6 GB, limit 8 GB)
+      # RHACM renames this to etcd_debugging_mvcc_db_total_size_in_bytes in Thanos.
+      # Grafana queries must use the etcd_debugging_* name, not the raw Prometheus name.
+      - etcd_mvcc_db_total_size_in_bytes
+
+    matches:
+      # All pod-level kube-state-metrics — Modules 2, 3, 5, 6
+      - __name__=~"kube_pod_.*"
+
+      # CPU throttling — Module 3 right-sizing analysis
+      - __name__="container_cpu_cfs_throttled_seconds_total"
+
+      # Module 6 Panel 3B — actual memory usage vs requested (fleet memory gap)
+      - __name__="container_memory_working_set_bytes"
+----
+
+==== Why each group is here
+
+[cols="2,3",options="header"]
+|===
+|Metric / pattern |Why it is needed
+
+|`kube_pod_start_time`
+|Module 2 dashboard panels 1 & 2 compute pod velocity as `rate(kube_pod_start_time[30d])`. Without it those panels are empty.
+
+|`kube_deployment_spec_replicas` + `_status_*` + `_created`
+|Module 2 dashboard panel 3 shows deployment count over time. Module 6 HPA panels also reference replica counts.
+
+|`kube_horizontalpodautoscaler_*`
+|Module 6 HPA monitoring panels — show current vs desired replicas and the scaling target metric.
+
+|`kube_node_info`
+|Module 6 Panel 5 pod density — provides the node count denominator for the pods-per-node calculation.
+
+|`etcd_mvcc_db_total_size_in_bytes`
+|Module 6 Panel 6 etcd DB size gauge — RHACM Thanos renames this to `etcd_debugging_mvcc_db_total_size_in_bytes`; Grafana queries must use the renamed form.
+
+|`__name__=~"kube_pod_.*"`
+|Captures all pod-level kube-state-metrics in one rule (`kube_pod_info`, `kube_pod_status_phase`, etc.). Used across Modules 2, 3, 5, and 6.
+
+|`container_cpu_cfs_throttled_seconds_total`
+|Module 3 right-sizing analysis — identifies containers that are being CPU-throttled. Not in the RHACM default allowlist.
+
+|`container_memory_working_set_bytes`
+|Module 6 Panel 3B — the "Memory Used" line in the memory requests vs actual usage chart. Without this metric the used line is blank.
+|===
+
+[NOTE]
+====
+*CPU Used line uses the RHACM default allowlist recording rule.*
+
+The "CPU Used" line in Panel 2 is powered by `node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate` which the RHACM built-in `observability-metrics-allowlist` already forwards on every managed cluster.
+The raw counter `container_cpu_usage_seconds_total` is intentionally *not* in the custom allowlist — adding a raw counter to an allowlist where the same data is already being collected via recording rules causes Thanos Receive+Store overlap duplicates that make `rate()` queries fail with "vector cannot contain metrics with the same labelset".
+====
+
+==== Verify the Memory Used metric is flowing
+
+The allowlist pre-configured by this workshop already includes `container_memory_working_set_bytes` so the *Memory Used* panel line populates automatically. Confirm the entry is present:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc get configmap observability-metrics-custom-allowlist \
+  -n open-cluster-management-observability \
+  -o jsonpath='{.data.metrics_list\.yaml}' | grep memory
+----
+
+.Expected Output
+[source,text]
+----
+  # Module 6 Panel 3B — actual memory usage vs requested (fleet memory gap)
+  - __name__="container_memory_working_set_bytes"
+----
+
+If the entry is missing (e.g. on a self-managed deployment), a platform admin can add it with:
+
+[source,bash]
+----
+oc patch configmap observability-metrics-custom-allowlist \
+  -n open-cluster-management-observability \
+  --type=merge \
+  -p '{"data":{"metrics_list.yaml":"...full content with container_memory_working_set_bytes added..."}}'
+----
+
+The `metrics-collector-deployment` on each managed cluster detects the change within ~2 minutes and restarts automatically. New data starts flowing to Thanos within one scrape interval (default: 5 minutes).
+
+[source,bash,role=execute]
+----
+oc config use-context $STUDENT_CTX
+oc whoami
+----
+
+=== Part 4: Deploy the Multi-Cluster Capacity Dashboard
+
+Push the pre-built capacity dashboard into RHACM Grafana using the same three-step context-switch pattern as Module 2 Part 4.
+
+[NOTE]
+====
+*Why use a pre-built ConfigMap?*
+
+RHACM Grafana uses a `grafana-dashboard-loader` sidecar that watches for ConfigMaps labelled `grafana-custom-dashboard: "true"` in the `open-cluster-management-observability` namespace and imports them automatically.
+This is the GitOps-friendly approach to dashboard management — dashboards are version-controlled YAML, not UI click trails.
+The dashboard you downloaded in the "Download Lab Files" section contains all six capacity panels plus the showback panel from Part 7.
+====
+
+==== Step 4a — Log back into the hub
+
+Your `$STUDENT_CTX` variable was set at the start of Part 1. Log into the hub cluster to get a token for `oc apply`:
+
+[source,bash,subs="+attributes",role=execute]
+----
+oc project {namespace}
+STUDENT_CTX=$(oc config current-context)
+echo "Student context: $STUDENT_CTX"
+oc login {hub_api_url} \
+  --username={hub_username} \
+  --password={hub_password} \
+  --insecure-skip-tls-verify=true
 ----
 
 .Sample Output
 [source,text]
 ----
-Version: 2.6.1
-Git Commit: ...
-Build Date: ...
+Student context: capacity-workshop/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin
+Login successful.
 ----
 
-[NOTE]
-====
-If you have not completed Module 3, download kube-burner now:
-
-[source,bash,subs="+attributes",role=execute]
-----
-mkdir -p ~/module-03 && cd ~/module-03
-curl -sL https://github.com/kube-burner/kube-burner/releases/download/v2.6.1/kube-burner-V2.6.1-linux-x86_64.tar.gz \
-  | tar -xz kube-burner
-chmod +x kube-burner
-./kube-burner version
-----
-====
-
-==== Step 1: Check Current Cluster State
+==== Step 4b — Apply the dashboard ConfigMap
 
 [source,bash,role=execute]
 ----
-oc get nodes -l node-role.kubernetes.io/worker
+oc apply -f ~/module-06/module-5---multi-cluster-capacity-planning.yaml \
+  -n open-cluster-management-observability
 ----
 
 .Sample Output
-[source,textinfo]
+[source,text]
 ----
-NAME                                         STATUS   ROLES    AGE   VERSION
-ip-10-0-145-209.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
-ip-10-0-155-132.us-east-2.compute.internal   Ready    worker   5d    v1.28.5+4bc5c35
-ip-10-0-174-87.us-east-2.compute.internal    Ready    worker   5d    v1.28.5+4bc5c35
+configmap/module-5---multi-cluster-capacity-planning created
 ----
 
-Record the baseline:
-* Worker nodes: 3
-* Status: All Ready
+The `grafana-dashboard-loader` sidecar detects the new ConfigMap and imports all panels into the *Workshop* folder in production Grafana within a few seconds.
 
-==== Step 2: Check Application Deployment State
-
-[source,bash,role=execute,subs="+attributes"]
-----
-oc get deployment -n {namespace} critical-app
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME           READY   UP-TO-DATE   AVAILABLE   AGE
-critical-app   2/2     2            2           5d
-----
-
-Baseline:
-* Replicas: 2
-* All available
-
-==== Step 3: Check HPA Configuration
-
-[source,bash,role=execute,subs="+attributes"]
-----
-oc get hpa -n {namespace}
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME               REFERENCE                   TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
-critical-app-hpa   Deployment/critical-app     cpu: 0%/75%, memory: 25%/80%   2         10        2          5d
-load-generator     Deployment/load-generator   cpu: 32%/75%                   1         5         1          5d
-----
-
-Baseline:
-* `critical-app-hpa`: scales `critical-app` at 75% CPU or 80% memory (min 2, max 10 replicas)
-* `load-generator` HPA: monitors load-generator scaling under traffic pressure (min 1, max 5)
-* Both HPAs will respond during the Black Friday simulation
-
-==== Step 4: Check Current Resource Allocation
+==== Step 4c — Switch back to your student cluster
 
 [source,bash,role=execute]
 ----
-oc describe node -l node-role.kubernetes.io/worker | grep -A 5 "Allocated resources"
+oc config use-context $STUDENT_CTX
+oc whoami
 ----
 
 .Sample Output
-[source,textinfo]
+[source,text]
 ----
-Allocated resources:
-  Resource           Requests       Limits
-  cpu                4388m (58%)    4710m (62%)
-  memory             12038Mi (39%)  6400Mi (21%)
---
-Allocated resources:
-  Resource           Requests       Limits
-  cpu                3438m (45%)    2040m (27%)
-  memory             11127Mi (36%)  2072Mi (6%)
---
-Allocated resources:
-  Resource           Requests       Limits
-  cpu                5363m (71%)    6010m (80%)
-  memory             12602Mi (41%)  4224Mi (13%)
+Switched to context "capacity-workshop/api-student-student-01-sandbox5388-opentlc-com:6443/system:admin".
+system:admin
 ----
 
-Baseline (values vary by node — these are representative):
-* CPU requested: 45–71% per node
-* Memory requested: 36–41% per node
-* The cluster has headroom to absorb the upcoming traffic waves
+[TIP]
+====
+*What's in the dashboard?*
 
-==== Step 5: Open the RHACM Observability Dashboard
+The ConfigMap contains seven panels — all using Thanos data from every managed cluster:
 
-Open the Multi-Cluster Capacity Planning dashboard you created in Module 5:
+[cols="1,2,3",options="header"]
+|===
+|Panel |Visualization |PromQL (key metric)
+|Total Pods by Cluster |Bar gauge |`sum by (cluster)(kube_pod_info)`
+|CPU: Requested vs Used |Time series (A/B) |`kube_pod_container_resource_requests{resource="cpu"}` vs `node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate`
+|Memory: Requested vs Used |Time series (A/B) |`kube_pod_container_resource_requests{resource="memory"}` vs `container_memory_working_set_bytes`
+|Capacity Runway (Days) |Table |`(allocatable - requests) / (delta(sum(...)[6h:5m]) * 4)` — shows *Stable — no growth detected* (green) when requests are not increasing
+|Pod Density (pods/node) |Stat |`kube_pod_info / kube_node_info{worker}`
+|etcd DB Size (MB) |Bar gauge |`etcd_debugging_mvcc_db_total_size_in_bytes / 1024 / 1024`
+|Top 10 Namespaces by CPU (30d) |Table |`topk(10, avg_over_time(...[30d]))`
+|===
 
-[source,bash,role=execute,subs="+attributes"]
-----
-echo "RHACM Grafana: {hub_grafana_url}"
-----
+The `cluster` dropdown defaults to *All*, giving a fleet-wide view. Select a specific cluster to scope any panel.
+====
 
-. Open the URL printed above in a new browser tab.
-. If prompted to log in, click *Log in with OpenShift* and enter your hub credentials:
+=== Part 5: Log In to Grafana and View the Dashboard
+
+==== Step 5a — Open the Grafana URL
+
+Open a new browser tab and navigate to the RHACM Grafana instance running on the hub:
+
+link:{hub_grafana_url}[{hub_grafana_url},window=_blank]
+
+==== Step 5b — Authenticate with OpenShift
+
+RHACM Grafana uses OpenShift OAuth — there is no separate Grafana username or password. On the login page:
+
+. Click *Log in with OpenShift*.
+. Choose the *workshop-students* identity provider.
+. Enter your hub credentials:
 +
 [cols="1,2",options="header"]
 |===
@@ -237,956 +630,313 @@ echo "RHACM Grafana: {hub_grafana_url}"
 |Username |`{hub_username}`
 |Password |`{hub_password}`
 |===
-+
 . Click *Log in* — you are redirected back to Grafana automatically.
-. In the left sidebar navigate to: *Dashboards* → *Multi-Cluster Capacity Planning*
 
-Keep this open in a separate browser window - you'll need it during the simulation.
+==== Step 6c — Navigate to the Module 6 dashboard
 
-This is your *baseline state* — all panels green, etcd at ~64 MB, pod density ~99 pods/node, and Capacity Runway showing *Stable — no growth detected* (no measurable CPU growth trend):
-
-image::module-06-grafana-baseline.png[Baseline Grafana dashboard before simulation — Total Pods ~296 across all namespaces, CPU flat, etcd ~64 MB, pod density ~99 pods/node,align="center"]
-
-[NOTE]
-====
-The *Total Pods by Cluster* panel counts pods across *all* namespaces (system, monitoring, gitops, workshop, etc.) — not just `capacity-workshop`.
-Your baseline pod count depends on which operators and workloads are running; numbers in this module are *examples only*. What matters is observing the *relative change* — pods rising, CPU spiking, etcd growing — not hitting a specific number.
-====
-
-=== Wave 1: The Traffic Spike (T+0 to T+15 minutes)
-
-[NOTE]
-====
-Ensure you have downloaded the lab files and have the kube-burner binary from Module 3 ready:
-
-[source,bash,subs="+attributes",role=execute]
-----
-ls ~/module-06/wave1-traffic-spike.yaml ~/module-03/kube-burner
-----
-====
-
-==== Your Action: Trigger the Black Friday Load Spike
-
-Run the kube-burner job to simulate Black Friday traffic overwhelming the cluster.
-This deploys 5 HTTP load-test pods that continuously fire requests at `critical-app`,
-driving its CPU above the 75% HPA threshold:
-
-[source,bash,subs="+attributes",role=execute]
-----
-cd ~/module-06
-~/module-03/kube-burner init -c wave1-traffic-spike.yaml
-----
-
-.Sample Output
-[source,text]
-----
-INFO[...] 🔥 Starting kube-burner (2.6.1@...) with UUID ...
-INFO[...] Pre-load: All images pulled on 3 nodes
-INFO[...] 2/5 iterations completed
-INFO[...] 4/5 iterations completed
-INFO[...] Verifying created objects
-INFO[...] Waiting up to 2m0s for actions to be completed
-INFO[...] Actions in namespace capacity-workshop completed
-INFO[...] ✅ Job black-friday-wave1 completed
-----
-
-[NOTE]
-====
-You may see `PodSecurity "restricted:latest"` warnings about `allowPrivilegeEscalation`, `runAsNonRoot`, and `seccompProfile`. These are *audit/warn* mode advisories only — the namespace does not enforce these constraints, so the load pods will start and run normally. The warnings are safe to ignore in this workshop context.
-====
-
-*Expected Effect*:
-* 5 load pods fire HTTP requests at `critical-app:80` simultaneously
-* `critical-app` CPU rises above 75% → `critical-app-hpa` starts scaling
-* Load-generator HPA may also scale from increased system activity
-* Some pods may be Pending if there is insufficient capacity on nodes
-
-==== Your Actions: Monitor and Respond
-
-Watch both HPAs and the critical-app deployment respond to load:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-watch -n 5 'oc get hpa -n {namespace} && echo "" && oc get deployment critical-app -n {namespace}'
-----
-
-.Sample Output (after 2 minutes)
-[source,textinfo]
-----
-NAME               REFERENCE                   TARGETS                          MINPODS   MAXPODS   REPLICAS   AGE
-critical-app-hpa   Deployment/critical-app     cpu: 84%/75%, memory: 28%/80%   2         10        5          5d
-load-generator     Deployment/load-generator   cpu: 142%/75%                   1         5         5          5d
-
-NAME           READY   UP-TO-DATE   AVAILABLE   AGE
-critical-app   3/5     5            3           5d
-----
-
-[WARNING]
-====
-*Problem Detected*:
-
-* HPA scaled to 5 replicas (max)
-* Only 3/5 are READY
-* 2 pods are stuck Pending
-
-*Why?* Not enough CPU capacity on nodes to schedule the new pods.
-====
-
-Check for Pending pods:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-oc get pods -n {namespace} --field-selector=status.phase=Pending
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME                            READY   STATUS    RESTARTS   AGE
-critical-app-6c4456cfc5-xk9p2   0/1     Pending   0          45s
-critical-app-6c4456cfc5-zm4t7   0/1     Pending   0          45s
-----
-
-Check why they're pending:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-PENDING_POD=$(oc get pods -n {namespace} --field-selector=status.phase=Pending \
-  -l app=critical-app -o jsonpath='{.items[0].metadata.name}')
-oc describe pod -n {namespace} "$PENDING_POD" | grep -A 10 "Events:"
-----
-
-.Sample Output
-[source,textinfo]
-----
-Events:
-  Type     Reason            Age   From               Message
-  ----     ------            ----  ----               -------
-  Warning  FailedScheduling  30s   default-scheduler  0/3 nodes are available: 3 Insufficient cpu.
-----
+In the left sidebar, click *Dashboards* → *Custom* → *Module 6 — Multi-Cluster Capacity Planning*.
 
 [IMPORTANT]
 ====
-*Decision Point #1*:
+*Select your cluster from the dropdown before reading the panels.*
 
-You have 4 options:
-
-*Option A*: Add more worker nodes (cost: $200/hour per node, 15-minute delay)
-*Option B*: Reduce HPA max replicas (risk: traffic spike might overwhelm remaining pods)
-*Option C*: Lower CPU requests for critical-app (risk: CPU throttling, Module 3 problem)
-*Option D*: Evict lower-priority pods to free capacity (risk: break dev/test workloads)
-
-*Team Discussion* (5 minutes): What would you do and why?
-
-*Facilitator*: Poll the room. Typical answers:
-- Platform team → "Add nodes" (safest, but expensive)
-- App team → "Lower requests" (fastest, but risks performance)
-- FinOps team → "Evict lower-priority" (cost-conscious)
+The dashboard opens with *All* selected in the *Cluster* dropdown. Use the dropdown at the top of the dashboard to select your own SNO cluster (`sno-{guid}-{user}` — visible in the list). Leaving it on *All* includes the hub (`local-cluster`), which runs two metrics-collectors and causes a "vector cannot contain metrics with the same labelset" error on the CPU Used and Capacity Runway panels. Selecting a specific SNO cluster avoids this entirely.
 ====
 
-==== Recommended Action: Add Worker Nodes
+You will see all seven panels populated with data from your student cluster:
 
-For this simulation, let's choose Option A (add nodes):
+image::module-06-grafana-overview.png[Module 6 dashboard — top two rows showing Total Pods by Cluster (local-cluster: 416, student-01: 300), CPU Requested vs Used time series, Memory Requested vs Used time series, and Capacity Runway table,align="center"]
 
-[source,bash,role=execute]
-----
-# In a real AWS environment, you'd use:
-# oc scale machineset <machineset-name> -n openshift-machine-api --replicas=5
+The runway table shows *Stable — no growth detected* (green background) when CPU requests have not increased over the last 6 hours — meaning runway is effectively infinite. This is the expected state on fresh or stable deployments. It is not an error. Clusters with real workload growth will show a finite number of days. See the optional Part 8 at the end of this module to simulate growth and watch the panel update in real time.
 
-# For this workshop simulation:
-echo "Simulating: Adding 2 new worker nodes (would take 15 minutes in production)"
-echo "Cost impact: 2 nodes × $200/hour = $400/hour"
-echo "Running cost for 1-hour incident: $400"
-----
+image::module-06-grafana-runway.png[Same dashboard view highlighting the Capacity Runway table in the top-right quadrant with red/yellow/green colour coding,align="center"]
 
-[NOTE]
-====
-*In a real production environment*:
+The bottom row shows pod density and etcd health across both clusters, plus the 30-day showback table:
 
-You'd scale the MachineSet:
-
-[source,bash]
-----
-# Find the MachineSet
-oc get machineset -n openshift-machine-api
-
-# Scale it
-oc scale machineset <name> -n openshift-machine-api --replicas=5
-----
-
-This would:
-1. Request 2 new EC2 instances from AWS (~5 minutes)
-2. Bootstrap them as OpenShift nodes (~5 minutes)
-3. Join the cluster and become Ready (~5 minutes)
-4. Total: ~15 minutes from request to schedulable
-
-*For the simulation*, we're skipping this delay to keep the exercise moving.
-====
-
-Verify all schedulable nodes are available:
-
-[source,bash,role=execute]
-----
-# Watch current schedulable node count
-watch -n 5 'oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l'
-----
-
-Once nodes are available, the Pending pods should schedule:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-oc get pods -n {namespace} -l app=critical-app
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME                            READY   STATUS    RESTARTS   AGE
-critical-app-6c4456cfc5-bj4zs   1/1     Running   0          5d
-critical-app-6c4456cfc5-ln9pp   1/1     Running   0          5d
-critical-app-6c4456cfc5-xk9p2   1/1     Running   0          3m  ← Previously Pending
-critical-app-6c4456cfc5-zm4t7   1/1     Running   0          3m  ← Previously Pending
-critical-app-6c4456cfc5-p9k3l   1/1     Running   0          1m  ← New replica
-----
+image::module-06-grafana-etcd.png[Dashboard bottom section — Average Pod Density stat (local-cluster: 139, student-01: 100), etcd Database Size bar gauge (local-cluster: 429 MB, student-01: 76.5 MB), and Top 10 Namespaces by CPU showback table,align="center"]
 
 [TIP]
 ====
-*Metrics to Monitor*:
-
-In your RHACM Grafana dashboard, you should see:
-
-* Panel "Total Pods by Cluster" → rises by ~5–10 pods above your baseline (5 load pods + HPA may scale `critical-app` from 2 to 3+ replicas)
-* Panel "CPU: Requested vs Used" → clear spike visible on the right edge of the time series as `wrk` saturates `critical-app`
-* Panel "Capacity Runway" → may show a brief finite value (days) as HPA adds new pods with CPU requests; returns to *Stable — no growth detected* once CPU requests stabilise
-
-Exact pod counts vary by cluster. Focus on the *direction of change*, not a specific number.
-
-*This is the value of Module 5's observability!* Without it, you'd be flying blind.
-====
-
-Here is an example of what the dashboard looks like during the Wave 1 traffic spike — notice the twin CPU spikes on the right of the time series and the pod count ticking up above baseline:
-
-image::module-06-grafana-wave1-spike.png[Grafana dashboard during Wave 1 — Total Pods rose to 303 (from 296 baseline), CPU: Requested vs Used shows two sharp spikes as wrk load pods fired,align="center"]
-
-=== Wave 2: The Node Failures (T+15 to T+30 minutes)
-
-ifdef::instructor[]
-[IMPORTANT]
-====
-*Facilitator Action*:
-
-Simulate the AWS availability zone failure:
-
-[source,bash]
-----
-# Cordon 30% of worker nodes (simulate unreachable nodes)
-# Uses awk ceiling arithmetic — 'bc' truncates 0.9 to 0 on 3-node clusters
-TOTAL_NODES=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers | wc -l)
-CORDON_COUNT=$(awk -v n="$TOTAL_NODES" 'BEGIN { c = n * 0.3; print (c == int(c)) ? int(c) : int(c)+1 }')
-
-oc get nodes -l node-role.kubernetes.io/worker --no-headers | awk '{print $1}' | head -n "$CORDON_COUNT" | xargs -I {} oc adm cordon {}
-
-# Wait 30 seconds, then drain them (simulate node shutdown)
-sleep 30
-oc get nodes -l node-role.kubernetes.io/worker --no-headers | awk '{print $1}' | head -n "$CORDON_COUNT" | xargs -I {} oc adm drain {} --ignore-daemonsets --delete-emptydir-data --force --grace-period=30
-----
-
-*Expected Effect*:
-* 30% of nodes become SchedulingDisabled
-* Pods on those nodes evict and reschedule
-* Remaining nodes experience CPU/memory pressure
-* Some pods may CrashLoopBackOff if they can't get resources
-====
-endif::instructor[]
-
-==== Your Action: Trigger the Node Failure Simulation
-
-Since you have cluster-admin access, you can run the failure simulation yourself.
-The following commands cordon one node (simulating an unreachable AWS availability zone),
-wait for pods to evict and reschedule, then leave it cordoned until Wave 4:
-
-[source,bash,role=execute]
-----
-# Identify the node to cordon (we cordon the first worker node in the list)
-FAILED_NODE=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers | awk '{print $1}' | head -1)
-echo "Simulating AZ failure — cordoning: $FAILED_NODE"
-oc adm cordon "$FAILED_NODE"
-----
-
-[source,bash,role=execute]
-----
-# Drain the cordoned node (evicts all non-DaemonSet pods, simulates the node shutdown)
-FAILED_NODE=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers \
-  | grep SchedulingDisabled | awk '{print $1}' | head -1)
-echo "Draining: $FAILED_NODE"
-oc adm drain "$FAILED_NODE" --ignore-daemonsets --delete-emptydir-data --force --grace-period=30
-----
-
-.Sample Output
-[source,textinfo]
-----
-Simulating AZ failure — cordoning: ip-10-0-145-209.us-east-2.compute.internal
-node/ip-10-0-145-209.us-east-2.compute.internal cordoned
-
-Draining: ip-10-0-145-209.us-east-2.compute.internal
-node/ip-10-0-145-209.us-east-2.compute.internal drained
-----
-
-[NOTE]
-====
-*What just happened*:
-
-* `oc adm cordon` marks the node `SchedulingDisabled` — the scheduler will not place new pods there.
-* `oc adm drain` evicts all pods from the node (except DaemonSets, which run on every node by design).
-* Kubernetes immediately reschedules evicted pods to the remaining Ready nodes.
-
-This is the *same operation* your team would run when AWS reports a degraded availability zone and you want to proactively move workloads away before the node becomes unreachable.
-====
-
-==== Your Actions: Triage the Outage
-
-Check node status:
-
-[source,bash,role=execute]
-----
-oc get nodes -l node-role.kubernetes.io/worker
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME                                         STATUS                     ROLES    AGE   VERSION
-ip-10-0-145-209.us-east-2.compute.internal   Ready,SchedulingDisabled   worker   5d    v1.28.5+4bc5c35
-ip-10-0-155-132.us-east-2.compute.internal   Ready                      worker   5d    v1.28.5+4bc5c35
-ip-10-0-174-87.us-east-2.compute.internal   Ready                      worker   5d    v1.28.5+4bc5c35
-ip-10-0-180-92.us-east-2.compute.internal   Ready                      worker   20m   v1.28.5+4bc5c35
-ip-10-0-191-45.us-east-2.compute.internal   Ready                      worker   20m   v1.28.5+4bc5c35
-----
-
-[WARNING]
-====
-*Analysis*:
-
-* 1 node is cordoned (SchedulingDisabled)
-* 4 nodes still Ready
-* Pods from the cordoned node are rescheduling
-
-*In a real multi-AZ outage*, you might see:
-* 30-50% of nodes unreachable (not responding to API)
-* Pods stuck in "Terminating" state (kubelet can't confirm shutdown)
-* etcd losing quorum if control plane nodes are affected
-====
-
-Check pod distribution:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-oc get pods -n {namespace} -o wide | awk '{print $7}' | sort | uniq -c
-----
-
-.Sample Output
-[source,textinfo]
-----
-      1 NODE
-     18 ip-10-0-155-132.us-east-2.compute.internal
-     15 ip-10-0-174-87.us-east-2.compute.internal
-     12 ip-10-0-180-92.us-east-2.compute.internal
-     10 ip-10-0-191-45.us-east-2.compute.internal
-----
-
-[NOTE]
-====
-*Pod Rebalancing*:
-
-After a node drain, pods don't automatically rebalance. You'll see:
-* Some nodes with 18 pods
-* Some nodes with 10 pods
-
-*This is normal.* Kubernetes scheduler only runs when pods are created/rescheduled, not continuously.
-
-*Should you manually rebalance?* Usually no - it causes unnecessary churn. Only rebalance if:
-* Imbalance is extreme (>2× difference)
-* You're hitting maxPods limits on some nodes
-* Performance is visibly degraded
-====
-
-Check for pod evictions:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-oc get events -n {namespace} --sort-by='.lastTimestamp' | grep -i evict | tail -10
-----
-
-.Sample Output
-[source,textinfo]
-----
-4m    Normal   EvictedByDrain   pod/critical-app-6c4456cfc5-bj4zs   Pod was evicted from node ip-10-0-145-209
-4m    Normal   EvictedByDrain   pod/load-generator-67567c576-hdvkj  Pod was evicted from node ip-10-0-145-209
-----
-
-[IMPORTANT]
-====
-*Decision Point #2*:
-
-Current state:
-* 1 node cordoned (20% capacity loss if you have 5 nodes)
-* All critical-app pods rescheduled successfully
-* Cluster is stable but running at higher utilization
-
-*Options*:
-
-*Option A*: Uncordon the node (assume AWS fixed the issue)
-*Option B*: Leave it cordoned and add more nodes (safest, but costs $200/hour)
-*Option C*: Wait and monitor (risk: if another node fails, you're in trouble)
-
-*Team Discussion* (3 minutes): What's your call?
-
-*Facilitator Guidance*:
-* In a real incident, you'd coordinate with AWS support
-* Typical recovery time for AZ issues: 30-120 minutes
-* Platform teams lean toward "leave it cordoned until AWS confirms recovery"
-* App teams want "uncordon ASAP to save money"
-====
-
-==== Recommended Action: Monitor and Wait
-
-Let's choose Option C (monitor) for this simulation:
-
-[source,bash,role=execute]
-----
-# Check cluster resource utilization
-oc adm top nodes -l node-role.kubernetes.io/worker
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME                                         CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
-ip-10-0-155-132.us-east-2.compute.internal   1891m        23%    9932Mi          33%
-ip-10-0-174-87.us-east-2.compute.internal    1512m        18%    7845Mi          26%
-ip-10-0-180-92.us-east-2.compute.internal    945m         11%    5201Mi          17%
-ip-10-0-191-45.us-east-2.compute.internal    823m         10%    4932Mi          16%
-----
-
-[TIP]
-====
-*Health Check*:
-
-* Highest CPU usage: 23% (healthy - far from throttling)
-* Highest memory usage: 33% (healthy)
-* No nodes approaching maxPods limits
-
-*Verdict*: Cluster can absorb the 20% capacity loss without immediate action.
-
-*Set up monitoring*:
-* Watch for CPU >70% (approaching throttling risk)
-* Watch for memory >80% (approaching eviction risk)
-* Alert if any pods go to CrashLoopBackOff
-====
-
-=== Wave 3: The etcd Pressure (T+30 to T+45 minutes)
-
-[IMPORTANT]
-====
-*Facilitator Narrative*:
-
-"It's now 12:30 PM. Traffic has stabilized at 8× normal levels. Your cluster is handling the load well. Then you notice something in the RHACM dashboard..."
-====
-
-Run the kube-burner job to simulate etcd pressure from event churn.
-This creates 20 zero-replica Deployments in rapid succession, inflating
-the etcd database with Deployment, ReplicaSet, and Event objects:
-
-[source,bash,subs="+attributes",role=execute]
-----
-cd ~/module-06
-~/module-03/kube-burner init -c wave3-etcd-pressure.yaml
-----
-
-.Sample Output
-[source,text]
-----
-INFO[...] 🔥 Starting kube-burner (2.6.1@...) with UUID ...
-INFO[...] Pre-load: All images pulled on 3 nodes
-INFO[...] 2/20 iterations completed
-INFO[...] 4/20 iterations completed
-...
-INFO[...] 18/20 iterations completed
-INFO[...] Verifying created objects
-INFO[...] Job etcd-pressure-wave3 took 0s
-INFO[...] 👋 Exiting kube-burner ...
-----
-
-After kube-burner completes, open your RHACM Grafana dashboard and check the *etcd Database Size (MB)* panel in the bottom-right.
-The increase is subtle — typically 1–3 MiB — because etcd partially compacts old entries.
-Wait up to 5 minutes for the RHACM Observability metrics collector to push the updated value to the hub.
-
-image::module-06-grafana-wave3-etcd.png[RHACM Grafana dashboard after Wave 3 — the etcd Database Size panel (bottom-right) shows the current etcd size in MiB; watch for a small upward tick compared to your baseline,align="center"]
-
-[TIP]
-====
-The *etcd Database Size* panel uses binary MiB but the label reads "MB" — your Prometheus query result and the panel value will match when you use `/ 1024 / 1024`.
-The key insight: *CPU and memory panels stay flat during etcd pressure* — only the etcd gauge reveals the problem. This is why dedicated etcd monitoring (Module 5) is essential.
+*Viewers can edit* is enabled in this Grafana instance. Click any panel title → *Edit* to inspect or modify the PromQL behind it — useful for adapting the dashboard to your own environment.
 ====
 
 [NOTE]
 ====
-*Expected Effect*:
-* etcd database size increases slightly due to 20 Deployment + ReplicaSet object writes
-* The increase is intentionally subtle (~1–3 MiB) — this is the point of the exercise
-* In a production cluster with thousands of events per minute, the same pattern causes rapid etcd growth toward the 8 GB quota limit
-* API response time degradation is not noticeable at workshop scale; at production scale this manifests as sluggish `oc` commands and API timeouts
+*GitOps dashboard management*:
+
+The ConfigMap you applied is the canonical source of truth for this dashboard.
+To update a panel in a real environment: edit the YAML in Git → merge → CI/CD pipeline runs `oc apply`.
+No one needs Grafana editor access; the dashboard is code.
 ====
 
-==== Your Actions: Diagnose etcd Issues
+=== Part 6: Validate Cross-Cluster Queries
 
-Run the etcd health check script — it auto-discovers Prometheus, mints a token, and reports the database size for all three etcd members:
+Let's verify the dashboard is pulling data from multiple clusters.
 
-[source,bash,role=execute]
-----
-bash ~/module-06/check-etcd-health.sh
-----
+Go back to the RHACM Grafana dashboard and navigate to "Explore" (compass icon in left sidebar).
 
-.Sample Output
-[source,text]
-----
-══════════════════════════════════════════════════
-  Module 6 — etcd Health Check
-══════════════════════════════════════════════════
-[INFO]  Step 1/3 — Locating Prometheus route …
-[OK]    Prometheus : https://prometheus-k8s-openshift-monitoring.apps.student.…
-
-[INFO]  Step 2/3 — Minting Prometheus service-account token …
-[OK]    Token acquired (1287 chars)
-
-[INFO]  Step 3/3 — Querying etcd database size …
-
-  INSTANCE                    SIZE (MiB)  % OF QUOTA  STATUS
-  --------------------------  ----------  ----------  ------
-  10.0.28.47:9979                  171.8        2.1%  OK       ← leader
-  10.0.58.247:9979                 170.0        2.1%  OK
-  10.0.95.86:9979                  171.1        2.1%  OK
-
-[OK]    All members below 4 GiB warning threshold (8 GiB quota).
-
-  ┌─────────────────────────────────────────────────────┐
-  │               etcd QUOTA REFERENCE                  │
-  ├─────────────────────────────────────────────────────┤
-  │  Warning threshold :     4096 MiB  (4 GiB)          │
-  │  Hard quota        :     8192 MiB  (8 GiB)          │
-  │  At hard quota     : API server rejects all writes  │
-  └─────────────────────────────────────────────────────┘
-
-  The Wave 3 kube-burner job creates 20 Deployments + ReplicaSets
-  in rapid succession. Watch the SIZE column tick upward compared
-  to the value recorded at the start of the simulation.
-----
-
-Your numbers will vary — what matters is watching the *SIZE (MiB)* column tick upward compared to your baseline run before Wave 3.
-
-Check API response time as a rough proxy for etcd health:
-
-[source,bash,role=execute]
-----
-time oc get pods -A --no-headers | wc -l
-----
-
-.Sample Output
-[source,textinfo]
-----
-296
-
-real	0m0.342s
-----
-
-[WARNING]
-====
-*Problem Detected*:
-
-* etcd database: 3.8GB (approaching 8GB hard limit)
-* API response time: 6.3× slower than baseline
-* Cause: Event churn from pod scaling and node drains
-
-*If etcd hits 8GB*:
-* Cluster enters emergency mode
-* New pod creations fail intermittently
-* Control plane becomes unreliable
-
-*This is why Module 4 emphasized the 10,000 pod ceiling!*
-====
-
-Check event count:
-
-[source,bash,role=execute]
-----
-oc get events -A --no-headers | wc -l
-----
-
-.Sample Output
-[source,textinfo]
-----
-8247  (↑ from normal baseline of ~500)
-----
-
-[IMPORTANT]
-====
-*Decision Point #3*:
-
-You need to reduce etcd pressure immediately.
-
-*Options*:
-
-*Option A*: Manually prune old events (risky - might delete useful debug info)
-*Option B*: Delete the `etcd-pressure-*` deployments (safe - they're not customer-facing)
-*Option C*: Restart etcd to force compaction (very risky - causes brief control plane outage)
-*Option D*: Scale down non-critical workloads to reduce object churn
-
-*Team Discussion* (3 minutes): Which option?
-
-*Facilitator Guidance*:
-* Option B is the clear winner (clean up the junk)
-* Option A works but requires care (don't delete recent events from the actual incident)
-* Option C is a last resort (only if etcd >7GB and compaction isn't running automatically)
-* Option D is good hygiene but won't solve the immediate problem
-====
-
-==== Recommended Action: Clean Up Junk Deployments
-
-[source,bash,role=execute,subs="+attributes"]
-----
-# Delete the etcd-pressure deployments (kube-burner labeled them app=etcd-pressure)
-oc delete deployment -n {namespace} -l app=etcd-pressure
-----
-
-Wait 30 seconds for event pruning to kick in, then check again:
-
-[source,bash,role=execute]
-----
-time oc get pods -A --no-headers | wc -l
-----
-
-.Sample Output
-[source,textinfo]
-----
-142
-
-real	0m0.612s   ← Improved: 612ms (still slower than baseline, but much better)
-----
-
-[TIP]
-====
-*Why API Response Improved*:
-
-* Deleted 20 deployments (20 fewer objects in etcd)
-* Event count dropped from 8247 → ~600
-* etcd compaction ran automatically (reclaimed space)
-
-*Monitor etcd size*:
+Run this query:
 
 [source,promql]
 ----
-etcd_mvcc_db_total_size_in_bytes / 1024 / 1024
-----
-
-Should drop slightly over the next 5 minutes as etcd compaction removes the deleted Deployment and ReplicaSet objects.
-====
-
-=== Wave 4: The Recovery (T+45 to T+60 minutes)
-
-[IMPORTANT]
-====
-*Facilitator Narrative*:
-
-"It's now 12:45 PM. AWS has confirmed the availability zone issue is resolved. You can uncordon the nodes. Traffic is starting to decrease as the Black Friday rush subsides. Time to plan your scale-down strategy."
-====
-
-==== Your Actions: Scale Down Gracefully
-
-Uncordon the previously failed nodes:
-
-[source,bash,role=execute]
-----
-oc get nodes -l node-role.kubernetes.io/worker --no-headers \
-  | grep SchedulingDisabled \
-  | awk '{print $1}' \
-  | xargs -I {} oc adm uncordon {}
+count by (cluster) (up{job="apiserver"})
 ----
 
 .Sample Output
 [source,textinfo]
 ----
-node/ip-10-0-145-209.us-east-2.compute.internal uncordoned
+{cluster="local-cluster"}  3
+{cluster="prod-east"}      3
+{cluster="prod-west"}      3
 ----
-
-Check that all nodes are Ready:
-
-[source,bash,role=execute]
-----
-oc get nodes -l node-role.kubernetes.io/worker
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME                                         STATUS   ROLES    AGE   VERSION
-ip-10-0-28-47.us-east-2.compute.internal    Ready    worker   3d    v1.29.8+f10c92d
-ip-10-0-58-247.us-east-2.compute.internal   Ready    worker   3d    v1.29.8+f10c92d
-ip-10-0-95-86.us-east-2.compute.internal    Ready    worker   3d    v1.29.8+f10c92d
-----
-
-Reduce traffic load (simulate traffic subsiding) by removing the Wave 1 kube-burner load pods:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-# Remove the Black Friday load pods from Wave 1 (stops HTTP pressure on critical-app)
-oc delete pod -n {namespace} -l app=black-friday-load
-
-# Also scale load-generator back to baseline
-oc scale deployment load-generator -n {namespace} --replicas=1
-oc set env deployment/load-generator -n {namespace} TARGET_RPS=100
-----
-
-Watch both HPAs scale down:
-
-[source,bash,role=execute,subs="+attributes"]
-----
-watch -n 10 'oc get hpa -n {namespace} && echo "" && oc get deployment critical-app -n {namespace}'
-----
-
-.Sample Output (after 5 minutes)
-[source,textinfo]
-----
-NAME               REFERENCE                   TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
-critical-app-hpa   Deployment/critical-app     cpu: 2%/75%, memory: 25%/80%   2         10        2          5d
-load-generator     Deployment/load-generator   cpu: 28%/75%                   1         5         1          5d
-
-NAME           READY   UP-TO-DATE   AVAILABLE   AGE
-critical-app   2/2     2            2           5d
-----
-
-[NOTE]
-====
-*HPA Scale-Down Delay*:
-
-HPA waits 5 minutes by default before scaling down (configurable via `--horizontal-pod-autoscaler-downscale-stabilization-window`).
-
-*Why the delay?*
-* Prevents flapping (scale up/down/up/down)
-* Gives time to confirm traffic decrease is sustained
-* Reduces pod churn (which creates etcd events)
-
-*This is healthy behavior.* Don't manually scale down unless you're certain the spike is over.
-====
 
 [IMPORTANT]
 ====
-*Decision Point #4*:
+*What This Proves*:
 
-You now have 5 worker nodes, but you only needed 3 before the incident.
+The `cluster` label is automatically added to all metrics by RHACM Observability. This allows you to:
 
-*Options*:
+* Query all clusters at once: `sum(kube_pod_info)`
+* Query a specific cluster: `sum(kube_pod_info{cluster="prod-east"})`
+* Group by cluster: `sum by (cluster) (kube_pod_info)`
 
-*Option A*: Immediately scale down to 3 nodes (save $400/hour, but risky if traffic spikes again)
-*Option B*: Keep 4 nodes for 24 hours (hedge against aftershocks, costs $200/hour extra)
-*Option C*: Keep all 5 nodes for the weekend (safest, costs $400/hour extra for 48 hours = $19,200)
+*This is the foundation for fleet-wide capacity planning.*
 
-*Team Discussion* (3 minutes): What's the right balance between cost and risk?
-
-*Facilitator Guidance*:
-* Platform teams typically choose Option B (keep 1 extra node for 24 hours)
-* FinOps teams push for Option A (scale down immediately)
-* Business stakeholders might demand Option C if Black Friday weekend historically has Saturday/Sunday spikes
-
-*Real-World Data*: Check your Pod Velocity model from Module 2 - does historical data show weekend spikes?
+If you only see `{cluster="local-cluster"}`, it means no managed clusters are registered with RHACM. In a production fleet, you'd see dozens of entries here.
 ====
 
-==== Recommended Action: Gradual Scale-Down
+=== Part 7: Showback/Chargeback Reporting
 
-[source,bash,role=execute]
+One powerful use case for multi-cluster observability is *showback* — reporting resource consumption back to application teams or business units.
+
+The dashboard you applied in Part 4 already includes a *Top 10 Namespaces by Avg CPU Request (30d Showback)* table in the bottom row. Navigate back to Grafana and scroll down to view it.
+
+The panel uses this PromQL:
+
+[source,promql]
 ----
-# Best practice: Scale down 1 node at a time, wait 30 minutes, observe
-echo "Recommended: Scale MachineSet from 5 → 4 nodes now"
-echo "Wait 30 minutes and monitor"
-echo "If stable, scale 4 → 3 nodes in 1-2 hours"
-echo "Cost: $200 extra for ~2 hours = $400 total"
+topk(10,
+  sum by (namespace, cluster) (
+    avg_over_time(kube_pod_container_resource_requests{resource="cpu"}[30d])
+  )
+)
 ----
+
+This identifies the ten namespaces that consumed the most CPU resources over the last 30 days across all managed clusters — the foundation of chargeback and capacity showback reports.
+
+To extend this into an estimated *monthly cost*, multiply by your cost-per-core:
+
+[source,promql]
+----
+topk(10,
+  sum by (namespace, cluster) (
+    avg_over_time(kube_pod_container_resource_requests{resource="cpu"}[30d])
+  )
+) * 50
+----
+
+Substitute `50` with your actual `$/core/month` value.
 
 [TIP]
 ====
-*Post-Incident Checklist*:
+*How to Calculate Your Real Cost Per Core*:
 
-Before declaring "all clear":
+```
+Total Monthly Cloud Bill / Total Allocatable Cores = $/core/month
+```
 
-✅ All nodes Ready
-✅ All deployments at desired replica count
-✅ No pods in CrashLoopBackOff or Pending
-✅ HPA targets within normal range (20-50%)
-✅ etcd database size <4GB
-✅ API response times back to baseline (<500ms)
-✅ No active alerts in Alertmanager
+Example:
+* Monthly bill: $50,000
+* Total cores across all clusters: 1000 cores
 
-*Run these checks*:
+```
+$50,000 / 1000 = $50/core/month
+```
 
-[source,bash,role=execute]
+*For on-premise bare-metal*:
+* Amortize hardware cost over 3 years
+* Add maintenance, power, cooling, data center rent
+* Divide by total core-years
+
+Example:
+* Server cost: $10,000 (64 cores), 3-year lifespan, $2,000/year maintenance:
+
+```
+($10,000 / 3 + $2,000) / 64 = $62/core/year = $5.17/core/month
+```
+
+*This is a simplified model.* For production FinOps, also factor in storage, network egress, load balancers, and control-plane overhead allocation.
+====
+
+=== Part 8 (Optional): Simulate Capacity Growth with kube-burner
+
+The Capacity Runway panel shows *Stable — no growth detected* on a freshly deployed cluster because CPU requests have not changed over the 6-hour measurement window.
+This optional exercise uses kube-burner to add 15 pods with explicit CPU requests, making the panel transition from *Stable* to a real countdown in days — demonstrating exactly what an on-call engineer would see when a new application is rolled out.
+
+TIP: This exercise isolates the *CPU requests* signal — the specific metric that drives the Capacity Runway formula. xref:module-07.adoc[Module 7] shows a different angle: a real HTTP traffic surge causes HPA to add pods, which incidentally raises CPU requests too. Doing both lets you see the same panel respond to two different root causes: a deliberate batch rollout (here) vs. demand-driven autoscaling (Module 7).
+
+NOTE: The kube-burner binary was installed in Module 3 (`~/module-03/kube-burner`).
+If you have not completed Module 3, see the download instructions in xref:module-03.adoc#_part_2_download_lab_files[Module 3 Part 2].
+
+==== Step 8a — Download the simulation files
+
+[source,bash]
 ----
-# Node health
-oc get nodes -l node-role.kubernetes.io/worker
-
-# Pod health
-oc get pods -A --field-selector=status.phase!=Running
-
-# HPA status
-oc get hpa -A
-
-# etcd size
-# (check Prometheus: etcd_mvcc_db_total_size_in_bytes / 1024 / 1024)
-
-# API response time
-time oc get pods -A --no-headers | wc -l
+BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
+mkdir -p ~/module-06
+curl -sLo ~/module-06/runway-sim.yaml \
+  $BASE/content/modules/ROOT/examples/module-06/runway-sim.yaml
+curl -sLo ~/module-06/runway-sim-pod.yaml \
+  $BASE/content/modules/ROOT/examples/module-06/runway-sim-pod.yaml
 ----
-====
 
-Once all checks pass, your RHACM Grafana dashboard should look like this — all panels green, CPU settling back to baseline, pod count returned to ~296, and etcd stable:
+Verify the files:
 
-image::module-06-grafana-wave4-recovered.png[RHACM Grafana dashboard after Wave 4 recovery — Total Pods back to 296, CPU time series shows a brief cleanup spike then settles flat, etcd Database Size stable at 67.5 MB, all panels green,align="center"]
+[source,bash]
+----
+ls -lh ~/module-06/runway-sim*.yaml
+----
 
-[NOTE]
-====
-The CPU chart shows a brief mountain-shaped spike during cleanup — this is the API server processing the deletion of 20 etcd-pressure Deployments and their ReplicaSets.
-This is expected and healthy: the spike is short-lived and the cluster self-stabilizes within minutes.
-====
+==== Step 8b — Run the simulation
 
-=== Simulation Debrief
+Make sure you are logged into your *student* cluster (not the hub) before running kube-burner:
 
-Congratulations! You survived the Black Friday + AWS outage simulation.
+[source,bash]
+----
+oc config use-context $STUDENT_CTX
+oc project capacity-workshop
+----
 
-==== Incident Timeline Summary
+Then launch the simulation:
 
-[cols="1,2,3,2",options="header"]
-|===
-|Time |Event |Your Action |Cost Impact
+[source,bash]
+----
+cd ~/module-06
+~/module-03/kube-burner init -c runway-sim.yaml
+----
 
-|T+0
-|Traffic spike (10×)
-|HPA scaled, 2 pods Pending
-|$0
-
-|T+5
-|Added 2 worker nodes
-|Pending pods scheduled
-|+$400/hour
-
-|T+15
-|30% node failure (AWS AZ outage)
-|Pods evicted and rescheduled
-|$0
-
-|T+30
-|etcd pressure (3.8GB)
-|Deleted junk deployments
-|$0
-
-|T+45
-|AWS recovered, uncordoned nodes
-|Monitored scale-down
-|$0
-
-|T+60
-|Traffic subsiding
-|HPA scaled down, kept 4 nodes
-|Continuing $200/hour
-|===
-
-==== Final Scorecard
-
-Calculate your costs:
-
+Sample output:
 [source,text]
 ----
-Emergency node additions: 2 nodes × $200/hour × 1 hour = $400
-Ongoing extra capacity: 1 node × $200/hour × 2 hours = $400
-──────────────────────────────────────────────────────────
-Total incident cost: $800
-Budget limit: $5,000
-──────────────────────────────────────────────────────────
-Result: ✅ UNDER BUDGET ($4,200 remaining)
+time="..." level=info msg="🔥 Starting kube-burner (2.6.1@...) with UUID ..."
+time="..." level=info msg="Pre-load: All images pulled on 3 nodes"
+time="..." level=info msg="Triggering job: runway-sim"
+time="..." level=info msg="0/5 iterations completed"
+time="..." level=info msg="Verifying created objects"
+time="..." level=info msg="Finished execution with UUID: ..."
+time="..." level=info msg="👋 Exiting kube-burner ..."
 ----
 
-Check success criteria:
+Confirm the deployments are running:
 
-✅ Request success rate: >95% (no customer-facing outages)
-✅ Incident cost: $800 (<$5,000 limit)
-✅ No services completely down
+[source,bash]
+----
+oc get deployments -n capacity-workshop -l kube-burner-job=runway-sim
+oc adm top pods -n capacity-workshop --selector kube-burner-job=runway-sim
+----
+
+==== Step 8c — Observe the Capacity Runway panel update
+
+Wait approximately *5 minutes* for the RHACM metrics collector to scrape the new pod data and forward it to Thanos.
+Then refresh the Grafana dashboard (the *Cluster* dropdown should still be set to your SNO cluster from Part 5).
+
+The *Capacity Runway by Cluster* table will change from:
+
+[cols="1,1"]
+|===
+|Time |student-NN
+|2026-... |Stable — no growth detected
+|===
+
+to a real countdown:
+
+[cols="1,1"]
+|===
+|Time |student-NN
+|2026-... |*N days* (yellow or red)
+|===
+
+[NOTE]
+====
+The runway formula uses `delta(sum by (cluster) (...)[6h:5m])` — a *subquery* that evaluates the cluster-level total CPU requests at 5-minute intervals over 6 hours, then computes the change. This form correctly detects both gradual growth AND batch pod additions like this simulation.
+
+The runway number will likely be very short (hours or negative) if the simulation pushes total requests close to or above the allocatable CPU for the cluster. That is the correct and expected result — the formula is showing you exactly what an on-call engineer would see: *"at this growth rate, you run out of headroom very soon."*
+
+In a real production environment growth is slower and more gradual, giving realistic runway values of weeks, months, or years.
+====
+
+==== Step 8d — Clean up simulation deployments
+
+[source,bash]
+----
+oc delete deployment -l kube-burner-job=runway-sim -n capacity-workshop
+----
+
+After cleanup, wait another 5 minutes for Thanos to scrape the reduced pod count.
+The Capacity Runway panel will return to *Stable — no growth detected* once the delta drops back to zero or negative.
+
+== Lab 6 Summary: Your Multi-Cluster Observatory
+
+You've now built:
+
+✅ Verified RHACM Observability installation and components
+✅ Customized metric allowlist to reduce storage costs by 95%
+✅ Applied a pre-built multi-cluster capacity dashboard via `oc apply` (GitOps pattern)
+✅ Viewed fleet-wide capacity, runway, and etcd health panels in RHACM Grafana
+✅ Reviewed showback data identifying top namespaces by CPU consumption
+✅ Validated cross-cluster PromQL queries using the `cluster` label
+⚡ (Optional) Simulated capacity growth with kube-burner and observed the Capacity Runway panel respond in real time
+
+=== Real-World Application
+
+Take this approach back to your organization:
+
+1. *Start with a minimal allowlist* (50-100 metrics) - you can always add more later
+2. *Build dashboards incrementally* - start with CPU/Memory, add pod count, then runway forecasts
+3. *Automate alerting* - create Prometheus AlertRules for "capacity runway < 30 days"
+4. *Version-control dashboards in Git* - treat observability as code
+5. *Review quarterly* - as workloads evolve, so should your dashboards
 
 [IMPORTANT]
 ====
-*What Made Success Possible*:
+*The Observability Maturity Model*:
 
-1. *Module 1 baseline* - You knew normal capacity utilization (42% CPU), so you recognized when you had headroom vs when you needed nodes
-2. *Module 2 forecasting* - Pod Velocity model predicted you'd need 4-5 nodes for Black Friday traffic
-3. *Module 3 right-sizing* - Accurate resource requests meant HPA scaled correctly without over-provisioning
-4. *Module 4 density knowledge* - You understood maxPods limits and etcd constraints, avoiding the 8GB ceiling
-5. *Module 5 observability* - RHACM dashboard gave you real-time visibility into the incident
+*Level 1 - Reactive*:
+* No centralized observability
+* Log into each cluster manually when problems occur
 
-*Without capacity planning*:
-* You'd have under-provisioned (outage)
-* Or over-provisioned by 10× (wasted $4,000+)
-* Or been flying blind during the incident
-====
+*Level 2 - Monitoring*:
+* RHACM Observability enabled
+* Default dashboards viewed occasionally
+* Alerts fire when capacity is already exhausted
 
-==== Lessons Learned Discussion
+*Level 3 - Proactive* (This Module):
+* Custom capacity dashboards
+* Metric allowlists optimized for cost
+* Runway forecasts updated weekly
 
-[TIP]
-====
-*Facilitator: Lead a 10-minute discussion*
+*Level 4 - Predictive* (Module 7):
+* Automated capacity forecasting based on Pod Velocity (Module 2)
+* Integration with financial planning systems
+* Self-service dashboards for app teams
 
-Questions for the room:
-
-1. *What would you do differently next time?*
-   - Pre-provision extra capacity before Black Friday? (costs money for days, not just hours)
-   - Set up automated scaling based on traffic forecasts?
-   - Implement traffic shaping/throttling to protect the platform?
-
-2. *What surprised you about the incident?*
-   - How fast things escalated?
-   - etcd pressure from event churn (not just pod count)?
-   - API response time degradation?
-
-3. *How would this play out in your organization?*
-   - Who makes the decision to add nodes?
-   - What's your budget approval process for emergency capacity?
-   - Do you have runbooks for node failures?
-
-4. *What metrics would you add to the RHACM dashboard after this?*
-   - Event count over time?
-   - API response time (API server latency)?
-   - Cost per cluster in real-time?
+Most organizations are at Level 1-2. This module gets you to Level 3.
 ====
 
 == Key Takeaways
 
-* *Capacity incidents require real-time decision-making with incomplete information*
-* *Every decision has trade-offs: cost vs availability, speed vs safety*
-* *Observability (Module 5) is critical for diagnosing multi-cluster issues under pressure*
-* *Right-sizing (Module 3) prevents waste during scale-up events*
-* *etcd pressure is a hidden failure mode that doesn't show up in CPU/memory dashboards*
-* *Gradual scale-down is safer than immediate scale-down after an incident*
+* *RHACM Observability provides a centralized PromQL query interface across all managed clusters*
+* *Metric allowlists reduce storage costs by 90%+ while preserving capacity planning visibility*
+* *The `cluster` label enables fleet-wide aggregation and per-cluster breakdowns*
+* *Grafana dashboards should focus on actionable metrics: runway, density, request vs usage gaps*
+* *Showback/chargeback requires calculating cost-per-core based on your actual infrastructure spend*
 
 == Next Steps
 
-In xref:module-07.adoc[Module 7: Strategic Roadmapping], you'll take the lessons from this simulation and build a 12-month capacity plan. You'll translate technical metrics (pod counts, node density, etcd limits) into executive-level recommendations with budget forecasts and risk assessments.
+In xref:module-07.adoc[Module 7: The Integration Challenge], you'll put everything together in a live simulation: a "Black Friday" traffic spike combined with an availability zone failure. You'll use the skills from Modules 1-6 to survive the chaos and keep the platform running.
 
-This is the final module - where you go from "firefighting" to "strategic planning."
+The observability dashboards from this module will be your "mission control" during the simulation.
 
-[NOTE]
-====
-*Homework Before Module 7*:
+== Further reading
 
-Think about these questions:
-
-1. What would a "Black Friday" equivalent look like in your organization? (product launch, tax season, end-of-quarter, etc.)
-2. How much would 1 hour of downtime during that event cost your business?
-3. What's your current budget for "emergency capacity" - do you even have one?
-
-Bring these answers to Module 7 - you'll need them for the strategic roadmap exercise.
-====
+* link:https://tosin2013.github.io/capacity-planning-lab-guide/blogs/post-a-rhacm-multicluster-observability-deep-dive[RHACM multi-cluster observability for OpenShift: Thanos, Grafana, and fleet-wide capacity planning] — Red Hat blog post with a technical deep dive into the hub-spoke architecture, metric allowlists, and the 95% storage reduction covered in this module.

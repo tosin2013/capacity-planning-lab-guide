@@ -249,7 +249,7 @@ Compare the "Nodes needed" figure to the default (8-core assumption). Does a lar
 === Part 4: Publish the Pod Velocity Dashboard to RHACM Grafana
 
 Push the forecasting panels into the RHACM Grafana instance running on the hub cluster.
-You will switch your `oc` context to the hub, apply a pre-built dashboard ConfigMap, then switch back — a pattern you will reuse in xref:module-05.adoc[Module 5].
+You will switch your `oc` context to the hub, apply a pre-built dashboard ConfigMap, then switch back — a pattern you will reuse in xref:module-06.adoc[Module 6].
 
 [NOTE]
 ====
@@ -318,7 +318,7 @@ system:admin
 
 [TIP]
 ====
-This three-step pattern — save context, login to hub, switch back — is used again in Module 5 when you import your student cluster into RHACM.
+This three-step pattern — save context, login to hub, switch back — is used again in Module 6 when you import your student cluster into RHACM.
 ====
 
 [#dev-grafana-overview]

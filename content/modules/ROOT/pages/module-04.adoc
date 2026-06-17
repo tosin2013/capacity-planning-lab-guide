@@ -1,878 +1,491 @@
-= Module 4: Infrastructure Track - Fleet Architecture & Sizing
+= Module 4: The Right-Sizing Activity — Ops Meets Dev
 
-_Duration: 90 minutes_
+_Duration: 60 minutes_
 
 [#objectives]
 == Learning Objectives
 
 By the end of this module, you will be able to:
 
-* Calculate minimum worker node counts using maxPods mathematics
-* Understand OpenShift control plane limits (etcd constraints)
-* Determine when to split clusters versus grow them (the monolith vs federation decision)
-* Tune kubeletConfig to increase node density from 250 to 500+ pods per node
-* Measure the impact of density changes on node memory overhead and control plane performance
+* Use Grafana dashboards to identify over-provisioned and under-provisioned workloads
+* Collaborate across operations and developer roles using dashboard evidence
+* Apply right-sizing recommendations based on cluster conditions and Prometheus data
+* Verify fixes through live dashboard feedback
 
-[#node-density]
-== The Mathematics of Node Density
+[#the-scenario]
+== The Scenario: A Deployment Gone Wrong
 
-As clusters grow from hundreds to thousands of nodes, new bottlenecks emerge that aren't visible at smaller scales. The most critical constraint is *how many pods can run on a single worker node*.
+In the previous module you learned the *theory* of right-sizing — QoS classes, CPU throttling, P95-based resource requests, and HPA tuning. Now you will put those skills to work in a realistic scenario.
 
-=== The Default: 250 Pods Per Node
+=== The Setup
 
-OpenShift sets a default limit of *250 pods per node* via the kubelet configuration. This seems like a large number, but it's surprisingly easy to hit:
+Your team's `checkout-api` service was recently deployed to the `{namespace}` namespace. The developer who wrote the deployment manifest made two common mistakes:
 
-[source,text]
-----
-Scenario: Microservices architecture with 3 replicas per service
-
-100 services × 3 replicas = 300 pods
-300 pods ÷ 250 pods/node = 1.2 nodes minimum
-
-But you need N+1 redundancy, so:
-1.2 × 2 = 2.4 → 3 worker nodes minimum
-----
-
-[IMPORTANT]
-====
-*The Pod Density Formula*:
-
-```
-Minimum Worker Nodes = ceil((Total Pods / maxPods per node) × Redundancy Factor)
-```
-
-Where:
-* Total Pods = sum of all deployment replicas across the cluster
-* maxPods per node = kubelet configuration (default 250, tunable to 500+)
-* Redundancy Factor = typically 1.5-2.0 for production (allows for node failures and rolling updates)
-
-Example:
-* 1000 total pods
-* 250 maxPods/node
-* 2.0 redundancy factor
-
-```
-ceil((1000 / 250) × 2.0) = ceil(4 × 2.0) = ceil(8) = 8 worker nodes minimum
-```
-====
-
-=== Why 250? The Memory Overhead Problem
-
-Each pod consumes memory *beyond its container requests* for:
-
-* Kubelet tracking structures (~2KB per pod)
-* CNI plugin state (Open vSwitch flows, iptables rules)
-* Container runtime metadata (CRI-O)
-* Linux kernel structures (cgroups, namespaces)
-
-At 250 pods per node, this overhead is approximately:
-
-[source,text]
-----
-250 pods × ~10MB overhead = ~2.5GB node memory reserved for Kubernetes itself
-----
-
-[WARNING]
-====
-*The Hidden Tax*:
-
-On a 32GB worker node:
-* Application pods see ~29GB allocatable memory (32GB - 3GB reserved for system)
-* At 250 pods, ~2.5GB of that is Kubernetes overhead
-* Effective capacity for app workloads: ~26.5GB (~17% overhead)
-
-*If you increase maxPods to 500*:
-* 500 pods × ~10MB = ~5GB Kubernetes overhead
-* Effective capacity: ~24GB (~25% overhead)
-
-*The trade-off*: Higher density = more efficient node usage, but less memory per pod on average.
-====
-
-=== When to Increase maxPods (500+)
-
-Increase maxPods beyond 250 when:
-
-✅ You have many small pods (10-50MB memory each) - e.g., serverless functions, edge workloads
-✅ Your nodes have 64GB+ memory (overhead percentage decreases)
-✅ You're optimizing for node count reduction (cost savings on bare-metal)
-✅ Control plane can handle the API request load (see etcd limits below)
-
-Do NOT increase maxPods if:
-
-❌ Pods average >500MB memory (you won't fit 500 pods anyway)
-❌ Cluster has >5000 total pods (etcd limit - see next section)
-❌ Control plane nodes are undersized (<8 cores, <32GB RAM)
-
-[#etcd-limits]
-== The etcd 8GB Database Limit
-
-OpenShift's control plane stores all cluster state in *etcd*, a distributed key-value store. The hard limit is:
-
-[IMPORTANT]
-====
-*etcd database maximum size: 8GB*
-
-Once etcd reaches 8GB, the cluster enters a degraded state:
-* API requests slow down (300ms → 3000ms response times)
-* New pod creations fail intermittently
-* kubectl/oc commands timeout
-* etcd requires defragmentation and compaction
-====
-
-=== What Consumes etcd Space?
-
-The primary consumers are:
-
-[cols="2,2,3",options="header"]
+[cols="2,3,3",options="header"]
 |===
-|Object Type |Typical Size |Impact at Scale
+|Resource |What They Set |What's Actually Happening
 
-|*Pods*
-|~4KB per pod
-|10,000 pods = 40MB
+|*CPU Request*
+|`500m` (half a core)
+|The service idles at 10–30m. Over 90% of the reserved CPU is wasted — blocking other pods from scheduling.
 
-|*Events*
-|~1KB per event
-|High churn apps generate 100K+ events/day = 100MB/day
-
-|*ConfigMaps/Secrets*
-|Variable (1KB-1MB)
-|Large ConfigMaps (>100KB) are dangerous
-
-|*Custom Resources*
-|Variable
-|Operators creating 1000s of CRs can consume GB
+|*Memory Limit*
+|`64Mi`
+|The httpd process and its modules need 80–120Mi. The container is constantly approaching its limit and risks OOMKill under any load.
 |===
 
-[WARNING]
-====
-*The Event Explosion Problem*:
-
-A single failing CrashLoopBackOff pod generates:
-
-```
-1 event every 10 seconds × 60 sec × 60 min × 24 hr = 8640 events/day
-8640 events × 1KB = 8.6MB per failing pod per day
-```
-
-100 failing pods = 860MB/day of etcd growth from events alone!
-
-*Solution*: OpenShift automatically prunes events older than 3 hours, but high-churn environments need monitoring.
-====
-
-=== The 10,000 Pod Ceiling
-
-Based on Red Hat's official support limits:
-
-[source,text]
-----
-Maximum supported cluster size (OpenShift 4.14+):
-- 500 worker nodes
-- 10,000 pods total
-- 120,000 total objects in etcd
-----
-
-[TIP]
-====
-*How to Monitor etcd Usage*:
-
-```bash
-# Check current etcd database size
-oc get etcd cluster -o jsonpath='{.status.conditions[?(@.type=="EtcdMembersAvailable")].message}'
-
-# Query Prometheus for etcd size
-etcd_mvcc_db_total_size_in_bytes / 1024 / 1024  # Convert to MB
-```
-
-*Alert Thresholds*:
-* 4GB (50%) - Start planning capacity relief
-* 6GB (75%) - Urgent action required
-* 7GB (87.5%) - Critical, begin cluster split planning
-====
-
-[#split-vs-grow]
-== The Monolith vs Federation Decision
-
-When you hit etcd limits or operational complexity, you face a choice:
-
-=== Option 1: Grow the Cluster (Scale Up)
-
-*Approach*: Add more worker nodes, tune maxPods, optimize object count
-
-*Pros*:
-* Simpler operations (one cluster to manage)
-* Shared resource pool (better bin-packing efficiency)
-* Centralized observability
-
-*Cons*:
-* Blast radius increases (outage affects everyone)
-* etcd limits eventually force a split anyway
-* Harder to isolate noisy neighbors
-
-*Best For*: Organizations with <5000 pods, strong platform team, low multi-tenancy requirements
-
-=== Option 2: Split the Cluster (Scale Out)
-
-*Approach*: Create multiple clusters, federate management via RHACM
-
-*Pros*:
-* Fault isolation (one cluster failure doesn't take down all apps)
-* Separate etcd databases (10,000 pod limit per cluster → 30,000 pods across 3 clusters)
-* Multi-tenancy enforcement (different teams get different clusters)
-
-*Cons*:
-* Operational overhead (3 clusters = 3× control planes to patch/upgrade)
-* Resource fragmentation (each cluster needs spare capacity, can't share)
-* Cross-cluster networking complexity (if apps need to talk across clusters)
-
-*Best For*: Organizations with >10,000 pods, strong multi-tenancy requirements, or geographic distribution needs
-
-=== The Hybrid Approach: RHACM Fleet Management
-
-Red Hat Advanced Cluster Management (RHACM) enables the "best of both worlds":
-
-* Multiple clusters for isolation and scale
-* Centralized policy management (governance, security, config)
-* Unified observability (one Grafana dashboard across all clusters)
-* Application portability (ArgoCD ApplicationSets deploy to multiple clusters)
-
 [IMPORTANT]
 ====
-*The RHACM Fleet Model*:
+*Why This Matters at Scale*:
 
-```
-Hub Cluster (RHACM)
-├── Production-East (10K pods)
-├── Production-West (10K pods)
-├── Dev-Sandbox (2K pods)
-└── Edge-Retail (1K pods)
-────────────────────────────────
-Total: 23K pods across 4 clusters
-```
+This single deployment wastes ~940m CPU across its 2 replicas (requesting 1000m total, using ~60m). On a 3-node compact cluster with 24 vCPU total, that is *almost 4% of the entire cluster's CPU capacity* locked up by one small service.
 
-*Management Overhead*:
-* Hub cluster: 16 core / 64GB RAM control plane
-* Each managed cluster: Standard 3-node control plane
+Multiply this pattern across 50 services and you have a cluster that appears "full" while actually running at 15% real utilization. The operations team sees capacity alerts; the developers say "we're barely using anything." Both are right — and both are wrong.
 
-*Capacity Planning Impact*:
-You now forecast per-cluster, then aggregate at the hub level. Module 5 covers this in detail.
+*This module bridges that gap.*
+====
+
+=== Two Hats, One Dashboard
+
+This lab uses a role-play structure. You will switch between two perspectives:
+
+* *Ops Hat* (Platform Engineer): You monitor the fleet. Your job is to find the problem using dashboards and metrics — then communicate the evidence clearly to the development team.
+* *Dev Hat* (Application Developer): You own the `checkout-api` code. When ops shows you the dashboard, your job is to understand the data, determine the correct resource values, and apply the fix.
+
+The *dashboard* is the shared language between these two roles.
+
+== Connecting to Your Student Cluster
+
+[IMPORTANT]
+.Reconnect if needed
+====
+If your SSH session to the student bastion has timed out, reconnect now:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+ssh {student-cluster-bastion-user}@{student-cluster-bastion} -o StrictHostKeyChecking=no
+----
+
+Password: `{student-cluster-bastion-password}`
+
+Then log in to OpenShift:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc login -u admin -p {student-cluster-password} {student-cluster-api} --insecure-skip-tls-verify=true
+----
 ====
 
 [#lab4]
-== Lab 4: The Density Game
+== Lab 4: Ops Meets Dev — The Right-Sizing Activity
 
-[NOTE]
-====
-All terminal commands in this lab run on your *student cluster*.
-If your SSH session ended, reconnect before continuing:
+=== Part 1: Deploy the Broken Application (Dev Hat)
 
-[source,bash,subs="+attributes",role=execute]
+First, download the lab assets:
+
+[source,bash,role=execute,subs="+attributes"]
 ----
-ssh lab-user@{student-cluster-bastion}
-----
+BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
+mkdir -p ~/module-04 && cd ~/module-04
 
-SSH password: `{student-cluster-password}`
-====
-
-In this hands-on lab, you'll modify the kubeletConfig to increase maxPods from 250 to 500, then observe the impact on node memory overhead and control plane performance during a mass-scheduling event.
-
-ifdef::user[]
-[IMPORTANT]
-.Multi-User Mode: Full Cluster-Admin Access
-====
-**You have complete cluster-admin permissions on your SNO cluster.**
-
-This means you can:
-
-* ✅ Create and modify MachineConfig resources
-* ✅ Apply KubeletConfig changes
-* ✅ View all namespaces and cluster-wide resources
-* ✅ Observe node reboots and infrastructure changes
-
-**Your SNO cluster has 1 node** (Single Node OpenShift architecture), so all infrastructure changes apply immediately. When you modify maxPods configuration, the node will:
-
-1. Apply the new kubelet settings
-2. Cordon and drain (if needed)
-3. Reboot to activate the configuration
-4. Rejoin the cluster
-
-**Expected downtime:** 3-5 minutes for configuration changes. Your workshop lab guide will remain accessible during node reboots.
-====
-endif::[]
-
-ifndef::user[]
-[NOTE]
-.Single-User Mode: Namespace-Scoped Permissions
-====
-**You have namespace-scoped permissions on the hub cluster.**
-
-Some operations in this lab require cluster-admin access:
-
-* ❌ MachineConfig creation (requires cluster-admin)
-* ❌ KubeletConfig modification (requires cluster-admin)
-* ✅ Viewing existing cluster configuration (read-only)
-
-**For learning purposes**, this module will demonstrate the commands and expected output. In a production environment or multi-user workshop with dedicated SNO clusters, you would have the necessary permissions to execute these changes.
-
-You can still complete the conceptual exercises and calculations. Skip hands-on steps that require cluster-admin permissions.
-====
-endif::[]
-
-=== Part 1: Baseline - Check Current Density
-
-First, let's see the current maxPods setting:
-
-[source,bash,role=execute]
-----
-oc get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.capacity.pods}{"\n"}{end}'
+curl -fsSO $BASE/content/modules/ROOT/examples/module-04/checkout-api-bad.yaml
+curl -fsSO $BASE/content/modules/ROOT/examples/module-04/checkout-api-fixed.yaml
+curl -fsSO $BASE/content/modules/ROOT/examples/module-04/right-sizing-dashboard.yaml
 ----
 
-ifndef::user[]
-.Sample Output (Multi-Node Cluster)
-[source,textinfo]
-----
-ip-10-0-145-209.us-east-2.compute.internal	250
-ip-10-0-155-132.us-east-2.compute.internal	250
-ip-10-0-174-87.us-east-2.compute.internal	250
-----
-endif::[]
+Deploy the deliberately mis-sized `checkout-api`:
 
-ifdef::user[]
-.Sample Output (SNO Cluster)
-[source,textinfo]
+[source,bash,role=execute,subs="+attributes"]
 ----
-sno-user1-node.example.com	250
+oc apply -f ~/module-04/checkout-api-bad.yaml -n {namespace}
 ----
 
-[NOTE]
-====
-Your SNO cluster has **1 node** that serves both control plane and worker roles. The maxPods limit of 250 applies to this single node.
-====
-endif::[]
+Wait for the pods to start:
 
-Now check how many pods are currently running per node:
-
-[source,bash,role=execute]
+[source,bash,role=execute,subs="+attributes"]
 ----
-oc get pods -A -o json | jq -r '.items[] | .spec.nodeName' | sort | uniq -c | sort -rn | head -5
+oc rollout status deployment/checkout-api -n {namespace} --timeout=120s
+----
+
+Verify the pods are running:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc get pods -n {namespace} -l app=checkout-api
 ----
 
 .Sample Output
-[source,textinfo]
-----
-     42 ip-10-0-145-209.us-east-2.compute.internal
-     38 ip-10-0-155-132.us-east-2.compute.internal
-     35 ip-10-0-174-87.us-east-2.compute.internal
-----
-
-[NOTE]
-====
-*Current State*:
-* maxPods = 250
-* Actual pods per node = 35-42 (~16% utilization)
-* Plenty of headroom for growth
-
-*Question for Discussion*: If we have 100 nodes at 16% pod density utilization, are we over-provisioned?
-====
-
-=== Part 2: Check Node Memory Overhead
-
-Let's see how much memory is consumed by Kubernetes overhead (not app pods):
-
-[source,bash,role=execute]
-----
-oc adm top nodes -l node-role.kubernetes.io/worker | awk '{print $1 "\t" $5}'
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME                                         MEMORY%
-ip-10-0-145-209.us-east-2.compute.internal   13%
-ip-10-0-155-132.us-east-2.compute.internal   19%
-ip-10-0-174-87.us-east-2.compute.internal   12%
-----
-
-Now let's calculate the overhead:
-
-[source,bash,role=execute]
-----
-# Get allocatable memory for a worker node
-oc get node -l node-role.kubernetes.io/worker -o json | jq -r '.items[0].status.allocatable.memory'
-----
-
-.Sample Output
-[source,textinfo]
-----
-30988400Ki
-----
-
-[TIP]
-====
-*Converting Ki to GB*: Divide by 1,048,576. `30988400 / 1048576 ≈ 29.5GB` allocatable.
-Your value will vary slightly depending on the instance type and how much the OS and Kubernetes system components reserve.
-====
-
-[TIP]
-====
-*Memory Overhead Calculation*:
-
-On a 32GB node (e.g., `m5.2xlarge`):
-* Allocatable: ~29.5GB (`30988400Ki`) — 32GB minus system-reserved memory for the OS and Kubernetes components
-* Current usage at 42 pods: ~3.8GB (13% of 29.5GB)
-* App pod memory requests: ~2.5GB
-* Kubernetes overhead: 3.8GB - 2.5GB = ~1.3GB
-
-*Overhead per pod*: 1.3GB / 42 pods ≈ *31MB per pod*
-
-(This is higher than the theoretical 10MB because it includes CNI and CRI-O state.)
-====
-
-=== Part 3: Increase maxPods to 500
-
-First, confirm which MachineConfigPool owns your nodes — this determines the selector to use:
-
-[source,bash,role=execute]
-----
-oc get mcp
-----
-
-.Sample Output (this lab — compact cluster)
-[source,textinfo]
-----
-NAME     CONFIG                                             UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT
-master   rendered-master-abc123                             True      False      False      3              3                   3
-worker   rendered-worker-def456                             True      False      False      0              0                   0
-----
-
-The `worker` pool shows `MACHINECOUNT: 0` because this is a compact cluster — all nodes carry both `master` and `worker` roles but are assigned to the `master` MachineConfigPool. Apply the KubeletConfig targeting `master`:
-
-[source,bash,role=execute]
-----
-cat <<EOF | oc apply -f -
-apiVersion: machineconfiguration.openshift.io/v1
-kind: KubeletConfig
-metadata:
-  name: set-max-pods-500
-spec:
-  machineConfigPoolSelector:
-    matchLabels:
-      pools.operator.machineconfiguration.openshift.io/master: ""
-  kubeletConfig:
-    maxPods: 500
-EOF
-----
-
-.Sample Output
-[source,textinfo]
-----
-kubeletconfig.machineconfiguration.openshift.io/set-max-pods-500 created
-----
-
-[NOTE]
-.SNO Clusters
-====
-Single Node OpenShift uses the same `master` MCP — the command above is identical. Because there is only *one* node (which is also the control plane), the MCO will reboot it. Expect *10–15 minutes* of API unavailability. Your Showroom lab guide will remain accessible during the reboot.
-====
-
-[NOTE]
-.Standard Multi-Node Clusters (dedicated workers)
-====
-On a standard cluster with separate worker nodes, `oc get mcp` will show `MACHINECOUNT: <N>` for the `worker` pool. Target `worker` instead of `master`:
-
-[source,yaml,role=copypaste]
-----
-  machineConfigPoolSelector:
-    matchLabels:
-      pools.operator.machineconfiguration.openshift.io/worker: ""
-----
-
-Only worker nodes are rebooted — control-plane nodes are unaffected.
-====
-
-[IMPORTANT]
-====
-*What Just Happened?*
-
-The Machine Config Operator (MCO) will:
-
-1. Generate a new MachineConfig with the maxPods setting
-2. Roll out the change to nodes in the targeted pool *one at a time* (to avoid downtime)
-3. Each node will:
-   - Drain all pods
-   - Reboot with the new kubelet configuration
-   - Rejoin the cluster
-
-*Expected Duration*: 10-15 minutes per node (30-45 minutes total for a 3-node compact cluster)
-
-*Watch the rollout*:
-```bash
-watch oc get mcp master
-```
-====
-
-Monitor the Machine Config Pool update:
-
-[source,bash,role=execute]
-----
-oc get mcp master -w
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME     CONFIG                                             UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT
-master   rendered-master-abc123                             True      False      False      3              3                   3
-master   rendered-master-def456                             False     True       False      3              2                   1
-master   rendered-master-def456                             False     True       False      3              1                   2
-master   rendered-master-def456                             True      False      False      3              3                   3
-----
-
-Press `Ctrl+C` once UPDATED changes back to `True`.
-
-Now verify maxPods increased:
-
-[source,bash,role=execute]
-----
-oc get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.capacity.pods}{"\n"}{end}'
-----
-
-.Sample Output
-[source,textinfo]
-----
-ip-10-0-28-47.us-east-2.compute.internal    500
-ip-10-0-58-247.us-east-2.compute.internal   500
-ip-10-0-95-86.us-east-2.compute.internal    500
-----
-
-[TIP]
-====
-*Success Criteria*:
-* All nodes now show `500` for pod capacity
-* UPDATED column in `oc get mcp master` is `True`
-* All pods have rescheduled successfully
-
-If any node shows DEGRADED=True, check:
-```bash
-oc get mc -l machineconfiguration.openshift.io/role=master --sort-by=.metadata.creationTimestamp | tail -1
-oc describe node <degraded-node-name>
-```
-====
-
-=== Part 4: The Mass-Scheduling Event
-
-Now we'll simulate a "Black Friday deployment" where you need to scale from 50 pods to 500 pods in under 2 minutes.
-
-First, check current control plane API response times:
-
-[source,bash,role=execute]
-----
-time oc get pods -A --no-headers | wc -l
-----
-
-.Sample Output
-[source,textinfo]
-----
-127
-
-real	0m0.342s   ← Baseline: 342ms to list all pods
-----
-
-Now deploy the mass-scheduling test in a dedicated namespace (no resource quota):
-
-[NOTE]
-====
-The `{namespace}` namespace has a ResourceQuota that caps total pods at 100, which would silently limit the density test.
-The density test runs in its own temporary namespace so the 400-pod target is reachable without touching the workshop quota.
-====
-
-[source,bash,role=execute]
-----
-oc new-project density-test-ns
-oc create deployment density-test --image=registry.access.redhat.com/ubi9/ubi-micro:latest --replicas=400 -n density-test-ns -- sleep infinity
-oc set resources deployment density-test -n density-test-ns --requests=cpu=10m,memory=16Mi --limits=cpu=50m,memory=32Mi
-----
-
-Watch the scheduling progress:
-
-[source,bash,role=execute]
-----
-watch -n 2 'oc get deployment density-test -n density-test-ns && echo "" && oc get pods -n density-test-ns --field-selector=status.phase!=Running | wc -l'
-----
-
-.Sample Output (after 60 seconds)
-[source,textinfo]
-----
-NAME           READY     UP-TO-DATE   AVAILABLE   AGE
-density-test   287/400   400          287         1m
-
-113   ← Pods still pending/creating
-----
-
-[WARNING]
-====
-*What You're Observing*:
-
-During mass-scheduling, the control plane is processing:
-
-* 400 pod create API requests
-* 400 scheduler decisions (which node has capacity?)
-* 400 kubelet "start container" operations
-* 400 CNI plugin "allocate IP" calls
-
-*If the cluster was already near maxPods limits*, some pods would remain Pending with:
-```
-Events:
-  Warning  FailedScheduling  pod/density-test-abc123
-    0/3 nodes available: 3 node(s) had taint {node.kubernetes.io/disk-pressure: }, that the pod didn't tolerate,
-    3 Insufficient pods (node has 248 running, limit is 250)
-```
-====
-
-Once the deployment is fully ready, test API response time again:
-
-[source,bash,role=execute]
-----
-time oc get pods -A --no-headers | wc -l
-----
-
-.Sample Output
-[source,textinfo]
-----
-527
-
-real	0m1.245s   ← Degraded: 1245ms (3.6× slower than baseline)
-----
-
-[IMPORTANT]
-====
-*Performance Impact Analysis*:
-
-Before mass-scheduling:
-* 127 pods across cluster
-* API response: 342ms
-
-After mass-scheduling:
-* 527 pods across cluster (4.1× increase)
-* API response: 1245ms (3.6× slower)
-
-*Why?*
-* etcd query time increases with object count
-* API server has to filter/sort more results
-* Network serialization overhead (more data to send)
-
-*Is this acceptable?* For most use cases, yes. But if you're building a platform for 10,000+ pods, you need to:
-* Scale control plane nodes vertically (more CPU/RAM)
-* Implement API priority and fairness (limit low-priority requests)
-* Consider cluster federation (split the load)
-====
-
-=== Part 5: Check Memory Overhead Impact
-
-Now let's see if memory overhead increased with the higher pod count:
-
-[source,bash,role=execute]
-----
-oc adm top nodes -l node-role.kubernetes.io/worker
-----
-
-.Sample Output
-[source,textinfo]
-----
-NAME                                         CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
-ip-10-0-145-209.us-east-2.compute.internal   423m         5%     6201Mi          21%
-ip-10-0-155-132.us-east-2.compute.internal   512m         6%     7932Mi          27%
-ip-10-0-174-87.us-east-2.compute.internal    445m         5%     5845Mi          20%
-----
-
-Compare to Part 2 (before the test):
-* Before: 13-19% memory usage at 35-42 pods/node
-* After: 20-27% memory usage at 150-180 pods/node
-
-Calculate overhead per pod:
-
-[source,bash,role=execute]
-----
-NODE=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[0].metadata.name}')
-MEM=$(oc adm top nodes "$NODE" --no-headers | awk '{print $4, $5}')
-POD_COUNT=$(oc get pods -A --field-selector spec.nodeName="$NODE" --no-headers | wc -l)
-# Note: counts pods across all namespaces including density-test-ns
-echo "Node: $NODE"
-echo "Memory usage: $MEM"
-echo "Pod count: $POD_COUNT pods"
-----
-
-.Sample Output
-[source,textinfo]
-----
-Node: ip-10-0-28-47.us-east-2.compute.internal
-Memory usage: 7932Mi 27%
-Pod count: 176 pods
-----
-
-[TIP]
-====
-*Updated Overhead Calculation*:
-
-* Total memory usage: 7932Mi
-* App pod requests (400 × 16Mi = 6400Mi for density-test + ~1000Mi for original pods): ~7400Mi
-* Kubernetes overhead: 7932Mi - 7400Mi = ~532Mi
-
-*Overhead per pod*: 532Mi / 176 pods ≈ *3MB per pod*
-
-*Why is this lower than Part 2?*
-
-The density-test pods are tiny (16Mi each) and mostly idle, so they're not generating much CNI/CRI-O state. In production with active workloads, expect 10-30MB overhead per pod.
-
-*Key Finding*: Kubernetes overhead is NOT linear with pod count—it depends on pod activity (network connections, volume mounts, etc.).
-====
-
-=== Part 6: Clean Up
-
-Remove the density test namespace (this also deletes all pods inside it):
-
-[source,bash,role=execute]
-----
-oc delete project density-test-ns
-----
-
-Optionally, revert maxPods back to 250 (if this was just a test):
-
-[source,bash,role=execute]
-----
-oc delete kubeletconfig set-max-pods-500
-----
-
-[WARNING]
-====
-*Rolling Back maxPods*:
-
-This will trigger another MCO rollout (10-15 minutes per node). Only do this if:
-
-* You determined 500 maxPods is too high for your workload
-* Control plane performance degraded unacceptably
-* You're running this lab in a shared environment and need to reset
-
-*For production*: Leave maxPods at 500 if your nodes have 64GB+ RAM and you have many small pods.
-====
-
-[IMPORTANT]
-====
-*Wait for the MCO rollout to complete before starting Module 5.*
-
-Deleting the `KubeletConfig` triggers the Machine Config Operator to roll back every worker node
-one at a time. Each node is cordoned, drained, rebooted with the reverted config, then uncordoned.
-On a 3-node cluster this takes *30–45 minutes*. On larger clusters it can take longer.
-
-*If you start Module 5 while this rollout is in progress*, you will see nodes cycling through
-`Ready,SchedulingDisabled` → `NotReady` → `Ready` — which is alarming and unexplained without this context.
-
-Wait until the `worker` MachineConfigPool reports `UPDATED=true` and `DEGRADED=false`:
-====
-
-[source,bash,role=execute]
-----
-echo "Waiting for MCO rollback to complete (30-45 min)..."
-oc wait mcp/worker --for=condition=Updated=True --timeout=3600s
-----
-
-.Sample Output (when complete)
 [source,text]
 ----
-machineconfigpool.machineconfiguration.openshift.io/worker condition met
+NAME                            READY   STATUS    RESTARTS   AGE
+checkout-api-6d4f8b9c7f-abc12   1/1     Running   0          30s
+checkout-api-6d4f8b9c7f-def34   1/1     Running   0          30s
+----
+
+Check the resource configuration that was deployed:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc get deployment checkout-api -n {namespace} \
+  -o jsonpath='requests cpu={.spec.template.spec.containers[0].resources.requests.cpu} memory={.spec.template.spec.containers[0].resources.requests.memory} | limits cpu={.spec.template.spec.containers[0].resources.limits.cpu} memory={.spec.template.spec.containers[0].resources.limits.memory}{"\n"}'
+----
+
+.Expected Output
+[source,text]
+----
+requests cpu=500m memory=32Mi | limits cpu=1 memory=64Mi
 ----
 
 [NOTE]
 ====
-You can also watch the progress node-by-node while waiting:
-
-[source,bash]
-----
-oc get mcp -w
-----
-
-The `MACHINE COUNT`, `READY MACHINE COUNT`, and `UPDATED MACHINE COUNT` columns will converge.
-All three should show the same number when the rollout is done.
-
-Feel free to take a break — this is a good opportunity to review your notes from Parts 1–5 or read the Key Takeaways below.
+*Reading the numbers*: The developer requested 500m CPU (half a core) for each replica — 1 full core total across 2 pods. The memory limit is only 64Mi. For context, a typical httpd process with UBI9 uses 10–30m CPU at idle and 80–120Mi memory. These numbers are clearly wrong in both directions.
 ====
 
-== Lab 4 Summary: Density Decisions
+=== Part 2: Deploy the Right-Sizing Dashboard (Ops Hat)
 
-You've now experienced:
-
-✅ maxPods configuration via KubeletConfig CRD
-✅ Machine Config Operator rollout behavior
-✅ Mass-scheduling impact on control plane API performance
-✅ Memory overhead measurement at different pod densities
-✅ Trade-offs between node density and operational complexity
-
-=== The Density Decision Matrix
-
-Use this matrix to choose your maxPods setting:
-
-[cols="2,2,2,3",options="header"]
-|===
-|Pod Count |Avg Pod Size |Node RAM |Recommended maxPods
-
-|<5000
-|<100MB
-|32GB
-|250 (default)
-
-|<5000
-|<50MB
-|64GB
-|500
-
-|>5000
-|<100MB
-|64GB
-|500 (and plan cluster split at 8000 pods)
-
-|>5000
-|>200MB
-|64GB
-|250 (you won't hit 500 anyway due to memory)
-|===
+Now switch to the ops perspective. You need visibility into what is happening in the namespace.
 
 [IMPORTANT]
 ====
-*The Infrastructure Social Contract*:
+*Dashboard deployment requires hub cluster access.* The Grafana instance runs on the RHACM hub cluster, not on your student cluster. You will temporarily switch your `oc` context to the hub, apply the dashboard ConfigMap, then switch back.
+====
 
-Platform teams often resist increasing maxPods because:
+Save your current student cluster context, then log in to the hub:
 
-* "It complicates capacity planning"
-* "Nodes become harder to drain during maintenance"
-* "Control plane might not handle the load"
+[source,bash,role=execute,subs="+attributes"]
+----
+oc config rename-context $(oc config current-context) student-context 2>/dev/null || true
+oc login -u {hub_admin_user} -p {hub_admin_password} {hub_api_url} --insecure-skip-tls-verify=true
+----
 
-Developers often push for higher maxPods because:
+Apply the Right-Sizing Dashboard ConfigMap to the observability namespace:
 
-* "We have hundreds of tiny sidecar containers"
-* "Serverless workloads need high density"
-* "Our FinOps team says we're wasting nodes"
+[source,bash,role=execute,subs="+attributes"]
+----
+oc apply -f ~/module-04/right-sizing-dashboard.yaml \
+  -n open-cluster-management-observability
+----
 
-*The resolution*:
+.Expected Output
+[source,text]
+----
+configmap/module-4---right-sizing-activity created
+----
 
-1. Measure actual pod sizes and count trends (Module 2's Pod Velocity)
-2. Test density changes in dev/staging first (this lab)
-3. Monitor control plane performance after the change (Module 5)
-4. Set cluster-wide policies for minimum pod requests (prevents abuse)
+Switch back to your student cluster:
 
-*Accurate capacity planning requires collaboration between infra and dev teams.* This lab proves the impact is measurable and manageable.
+[source,bash,role=execute,subs="+attributes"]
+----
+oc config use-context student-context
+----
+
+==== Navigate to the Dashboard
+
+Open the RHACM Grafana console in your browser:
+
+{grafana_url}
+
+In the left sidebar, click *Dashboards* → *Custom* → *Module 4 — Right-Sizing Activity*.
+
+[TIP]
+====
+*Set the Namespace variable* at the top of the dashboard to `{namespace}` and the *Cluster* variable to your student cluster name (e.g. `sno-user-1`). The dashboard will filter all panels to show only workloads in your namespace.
+====
+
+=== Part 3: Investigate the Evidence (Ops Hat)
+
+With the dashboard loaded, systematically read each panel to build your diagnosis.
+
+==== Panel 1 & 2: CPU and Memory Utilization Gauges
+
+The top row shows utilization as a percentage of requests.
+
+*What to look for:*
+
+* *checkout-api CPU gauge*: Should show a very low percentage (5–15%). This means the pod is using a tiny fraction of its 500m CPU request — massive over-provisioning.
+* *checkout-api Memory gauge*: May show a high percentage (close to or exceeding 100%). The 32Mi request is far below actual usage.
+* *Other pods* (e.g., `load-generator`, `besteffort-app`): Compare their gauges to `checkout-api`. Well-sized pods typically show 40–80% utilization.
+
+[NOTE]
+====
+*Why percentages matter more than absolute numbers*: A pod using 20m CPU with a 30m request (67%) is well-sized. A pod using 20m CPU with a 500m request (4%) is wasting capacity. The dashboard shows this ratio immediately — no mental arithmetic needed.
+====
+
+==== Panel 3 & 4: CPU and Memory Time-Series
+
+The middle row shows requested vs actual usage over time.
+
+*What to look for:*
+
+* *CPU panel*: The "Requested" line for `checkout-api` sits at 500m. The "Actual" line hugs the bottom near 10–30m. The gap between these two lines is pure waste.
+* *Memory panel*: Three lines per pod — Requested, Actual, and Limit. Watch for the "Actual" line approaching or touching the "Limit" line. If actual usage meets the limit, the kernel OOMKills the container.
+
+==== Panel 5: Container Restarts (OOMKill Indicator)
+
+This stat panel shows the total restart count per pod.
+
+*What to look for:*
+
+* If `checkout-api` shows restarts > 0, it has been OOMKilled. The 64Mi memory limit is too low.
+* Compare against other pods — stable workloads should show 0 restarts.
+
+==== Panel 6: CPU Throttling Rate
+
+This panel shows how aggressively the kernel's CFS scheduler is throttling each pod.
+
+*What to look for:*
+
+* Despite the huge CPU request, `checkout-api` should show minimal throttling because the 1-core limit gives plenty of headroom. The problem here is waste, not throttling.
+* Other pods with tighter limits may show higher throttle rates.
+
+==== Confirm with CLI (Ops Report)
+
+Back in the terminal, generate the numbers that support your dashboard observations:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+echo "=== Resource Configuration ==="
+oc get deployment checkout-api -n {namespace} \
+  -o jsonpath='  Requests: cpu={.spec.template.spec.containers[0].resources.requests.cpu}, memory={.spec.template.spec.containers[0].resources.requests.memory}{"\n"}  Limits:   cpu={.spec.template.spec.containers[0].resources.limits.cpu}, memory={.spec.template.spec.containers[0].resources.limits.memory}{"\n"}'
+
+echo ""
+echo "=== Actual Resource Consumption ==="
+oc adm top pods -n {namespace} -l app=checkout-api
+
+echo ""
+echo "=== Pod QoS Class ==="
+oc get pods -n {namespace} -l app=checkout-api \
+  -o jsonpath='{range .items[*]}{.metadata.name}: {.status.qosClass}{"\n"}{end}'
+
+echo ""
+echo "=== Recent Events (OOMKills, warnings) ==="
+oc get events -n {namespace} --field-selector involvedObject.kind=Pod \
+  --sort-by='.lastTimestamp' 2>/dev/null | grep -i -E "checkout-api|oom|kill|back-off" | tail -5
+----
+
+[TIP]
+====
+*The Ops Report*: Share these findings with the development team. The message is:
+
+_"Your `checkout-api` deployment is requesting 500m CPU per replica but using only 10–30m. That is 94–98% waste. Meanwhile, your 64Mi memory limit is below actual usage — you've had OOMKills. We need you to right-size this based on Prometheus data."_
+
+This is the conversation that dashboards enable. Without the dashboard, ops says "the cluster is full" and dev says "we're not using anything." With the dashboard, both teams see the same numbers.
+====
+
+=== Part 4: Right-Size the Application (Dev Hat)
+
+Now switch to the developer perspective. Ops has shown you the evidence. Time to fix the resource settings.
+
+==== Step 1: Get P95 Recommendations
+
+Use the `resource-right-sizer.sh` script from Module 3 to query Prometheus for the actual 95th-percentile resource usage:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+NAMESPACE={namespace} POD_SELECTOR="checkout-api.*" ~/module-03/resource-right-sizer.sh
+----
+
+The script will output:
+
+* P95 CPU usage (raw millicores)
+* P95 Memory usage (raw MiB)
+* Recommended request and limit values
+* The exact `oc set resources` command to apply
+
+[NOTE]
+====
+*Cross-reference the recommendations with the dashboard*: The right-sizer uses Prometheus P95 data. The dashboard shows the same data visually. They should agree — the CPU recommendation should be far below 500m, and the memory recommendation should be well above 64Mi.
+
+If the right-sizer reports 0 for CPU or memory, the deployment may not have been running long enough to accumulate metrics. Wait 2–3 minutes and re-run.
+====
+
+==== Step 2: Apply the Fix
+
+Apply the right-sized values. Use the command output from the right-sizer, or apply the pre-built fixed manifest:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc set resources deployment checkout-api -n {namespace} \
+  --requests=cpu=30m,memory=128Mi \
+  --limits=cpu=100m,memory=192Mi
+----
+
+Wait for the rollout to complete:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc rollout status deployment/checkout-api -n {namespace} --timeout=60s
+----
+
+Confirm the new resource values:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc get deployment checkout-api -n {namespace} \
+  -o jsonpath='requests cpu={.spec.template.spec.containers[0].resources.requests.cpu} memory={.spec.template.spec.containers[0].resources.requests.memory} | limits cpu={.spec.template.spec.containers[0].resources.limits.cpu} memory={.spec.template.spec.containers[0].resources.limits.memory}{"\n"}'
+----
+
+.Expected Output
+[source,text]
+----
+requests cpu=30m memory=128Mi | limits cpu=100m memory=192Mi
+----
+
+==== Step 3: Verify the QoS Class
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc get pods -n {namespace} -l app=checkout-api \
+  -o jsonpath='{range .items[*]}{.metadata.name}: {.status.qosClass}{"\n"}{end}'
+----
+
+The QoS class should be *Burstable* (requests < limits). This is the recommended class for most production workloads — it allows CPU burst capacity while protecting against eviction.
+
+=== Part 5: Verify the Fix (Both Hats)
+
+==== Dashboard Verification
+
+Return to the Grafana dashboard (*Module 4 — Right-Sizing Activity*) and refresh (or wait 10–30 seconds for auto-refresh).
+
+*What should change:*
+
+[cols="2,3,3",options="header"]
+|===
+|Panel |Before Fix |After Fix
+
+|*CPU Utilization Gauge*
+|5–15% (massive over-provisioning)
+|40–80% (healthy range)
+
+|*Memory Utilization Gauge*
+|Close to or exceeding 100%
+|60–80% (safely below limit)
+
+|*CPU Requested vs Actual*
+|Huge gap between requested (500m) and actual (10–30m)
+|Lines much closer together
+
+|*Memory Requested vs Actual vs Limit*
+|Actual approaching/exceeding limit (64Mi)
+|Actual safely below new limit (192Mi)
+
+|*Container Restarts*
+|May show restarts from OOMKills
+|No new restarts after fix
+
+|*CPU Waste*
+|Large bar (~470m wasted)
+|Small bar or near zero
+|===
+
+==== CLI Verification
+
+Run the same ops report as before to confirm the improvement numerically:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+echo "=== Current Resource Configuration ==="
+oc get deployment checkout-api -n {namespace} \
+  -o jsonpath='  Requests: cpu={.spec.template.spec.containers[0].resources.requests.cpu}, memory={.spec.template.spec.containers[0].resources.requests.memory}{"\n"}  Limits:   cpu={.spec.template.spec.containers[0].resources.limits.cpu}, memory={.spec.template.spec.containers[0].resources.limits.memory}{"\n"}'
+
+echo ""
+echo "=== Actual Resource Consumption ==="
+oc adm top pods -n {namespace} -l app=checkout-api
+----
+
+==== Discussion: Policy Prevention
+
+[IMPORTANT]
+====
+*What Could Have Prevented This?*
+
+Platform engineers can prevent bad resource configurations before they reach production:
+
+* *LimitRange*: Sets default and maximum resource values per container. A LimitRange with `max.cpu: 200m` would have rejected the 500m request at admission time.
+
+* *ResourceQuota*: Caps total resource consumption per namespace. If the namespace quota was tight, the over-provisioned deployment would have failed to schedule.
+
+* *Admission Webhooks / OPA Gatekeeper*: Custom policies can enforce right-sizing standards (e.g., "CPU request must not exceed 4x the P95 of similar workloads").
+
+These guardrails work *with* dashboards, not instead of them. Dashboards catch existing problems; policies prevent new ones.
+====
+
+== Module 4 Cleanup
+
+Remove the `checkout-api` deployment to leave the namespace clean for subsequent modules:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc delete deployment checkout-api -n {namespace}
+----
+
+.Sample Output
+[source,text]
+----
+deployment.apps "checkout-api" deleted
+----
+
+[NOTE]
+====
+*Optional*: If you want to keep the Grafana dashboard for reference in later modules, leave the ConfigMap in place. It will not interfere with other modules. To remove it:
+
+[source,bash,subs="+attributes"]
+----
+oc config use-context student-context 2>/dev/null || true
+oc login -u {hub_admin_user} -p {hub_admin_password} {hub_api_url} --insecure-skip-tls-verify=true
+oc delete configmap module-4---right-sizing-activity -n open-cluster-management-observability
+oc config use-context student-context
+----
+====
+
+== Lab 4 Summary: Bridging the Ops-Dev Divide
+
+You have now experienced:
+
+* Deploying a Grafana dashboard as a shared communication tool between ops and dev
+* Identifying CPU over-provisioning and memory under-provisioning from dashboard panels
+* Using Prometheus P95 data to determine correct resource values
+* Applying right-sized requests and limits, then verifying the fix in real time
+* Understanding how LimitRange, ResourceQuota, and admission policies can prevent these issues
+
+=== The Right-Sizing Conversation
+
+[IMPORTANT]
+====
+*What Changed Between Module 3 and Module 4?*
+
+Module 3 taught you the *mechanics* — QoS, throttling, P95, HPA. You worked alone on pre-existing workloads.
+
+Module 4 taught you the *workflow* — how ops identifies a problem, communicates it with evidence, and how dev responds with data-driven fixes. The dashboard is the handoff artifact.
+
+In real organisations, right-sizing is not a one-time script. It is an ongoing conversation:
+
+1. *Ops* monitors dashboards for drift (CPU waste growing, memory limits approached)
+2. *Ops* generates evidence (dashboard screenshots, CLI reports, P95 recommendations)
+3. *Dev* reviews the evidence and adjusts resource requests in their deployment manifests
+4. *Both* verify the fix on the dashboard
+5. *Platform team* sets policies (LimitRange, ResourceQuota) to prevent regression
+
+This loop is the operational discipline that makes capacity planning sustainable.
 ====
 
 == Key Takeaways
 
-* *maxPods default (250) is conservative but safe for most workloads*
-* *Increasing to 500 makes sense for small pods (10-50MB) on large nodes (64GB+)*
-* *Memory overhead is 10-30MB per pod depending on workload activity*
-* *etcd 8GB limit forces cluster split at ~10,000 pods regardless of maxPods tuning*
-* *Control plane API performance degrades with pod count—plan for 3-5× slower responses at 10K pods*
-* *RHACM fleet management enables scaling beyond single-cluster limits*
+* *Dashboards are the shared language* between operations and development teams
+* *CPU over-provisioning* silently wastes cluster capacity — the cluster looks "full" while running at low utilization
+* *Memory under-provisioning* causes OOMKills — the application crashes but the developer may not notice until production
+* *P95-based right-sizing* is the data-driven alternative to guessing resource values
+* *Policy guardrails* (LimitRange, ResourceQuota, admission webhooks) prevent future misconfigurations
 
 == Next Steps
 
-In xref:module-05.adoc[Module 5: Fleet Observability with RHACM], you'll enable Multi-Cluster Observability, customize metric allowlists, and build a unified capacity dashboard that shows pod density, etcd usage, and node requirements across your entire fleet.
+In xref:module-05.adoc[Module 5: Infrastructure Track - Fleet Architecture & Sizing], you shift to the platform engineer perspective and tackle the other side of capacity planning — node density math, etcd limits, and when to split clusters versus grow them.
 
-The maxPods tuning from this module directly impacts the density metrics you'll visualize in Module 5's "God's-Eye Dashboard."
+The right-sizing skills from Modules 3 and 4 directly feed into Module 5's density calculations. If resource requests are wrong, density estimates are wrong, and infrastructure decisions are based on fiction.
+
+== Further Reading
+
+* link:https://tosin2013.github.io/capacity-planning-lab-guide/blogs/post-e-right-sizing-ops-dev-collaboration[Right-sizing Kubernetes workloads: how dashboards bridge the ops-dev divide] — Blog post expanding on the ops-dev dashboard workflow covered in this module.
+* link:https://developers.redhat.com/articles/2025/08/04/optimize-workloads-right-sizing-recommendations[Optimize workloads with right-sizing recommendations] — Red Hat Developer article on RHACM's built-in right-sizing capabilities.
+* link:https://grafana.com/blog/monitor-these-kubernetes-signals-to-help-rightsize-your-fleet/[Monitor these Kubernetes signals to help rightsize your fleet] — Grafana Labs guide to the key metrics for right-sizing decisions.
+* link:https://tosin2013.github.io/capacity-planning-lab-guide/blogs/post-d-kubernetes-requests-limits-explainer[Kubernetes requests and limits: why both teams are right] — Workshop blog post expanding on the ops-dev tension around resource requests.

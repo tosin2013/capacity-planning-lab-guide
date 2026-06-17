@@ -127,33 +127,49 @@ remote_check "M3: oc adm top pods (read-only)" \
      oc adm top pods -n ${NAMESPACE} 2>&1 | head -10 || true"
 
 # -----------------------------------------------------------------
-# MODULE 4 — density test deployment
+# MODULE 4 — right-sizing activity
 # -----------------------------------------------------------------
 echo ""
 echo "--- Module 4 ---"
 
-remote_check "M4: oc create deployment -- sleep infinity --dry-run=client" \
+remote_check "M4: oc apply checkout-api --dry-run=client" \
+    "oc login '${OCP_API}' --username='${OC_USER}' --password='${OC_PASS}' --insecure-skip-tls-verify=true -q 2>&1; \
+     oc apply -f ${REPO_ROOT}/content/modules/ROOT/examples/module-04/checkout-api-bad.yaml \
+       -n ${NAMESPACE} --dry-run=client 2>&1"
+
+remote_check "M4: oc set resources checkout-api --dry-run=client" \
+    "oc login '${OCP_API}' --username='${OC_USER}' --password='${OC_PASS}' --insecure-skip-tls-verify=true -q 2>&1; \
+     oc set resources deployment checkout-api -n ${NAMESPACE} \
+       --requests=cpu=30m,memory=128Mi --limits=cpu=100m,memory=192Mi --dry-run=client 2>&1"
+
+# -----------------------------------------------------------------
+# MODULE 5 — density test deployment
+# -----------------------------------------------------------------
+echo ""
+echo "--- Module 5 ---"
+
+remote_check "M5: oc create deployment -- sleep infinity --dry-run=client" \
     "oc login '${OCP_API}' --username='${OC_USER}' --password='${OC_PASS}' --insecure-skip-tls-verify=true -q 2>&1; \
      oc create deployment density-test \
        --image=registry.access.redhat.com/ubi9/ubi-micro:latest \
        --replicas=1 -n ${NAMESPACE} --dry-run=client -- sleep infinity 2>&1"
 
 # -----------------------------------------------------------------
-# MODULE 6 — drain/cordon flags
+# MODULE 7 — drain/cordon flags
 # -----------------------------------------------------------------
 echo ""
-echo "--- Module 6 ---"
+echo "--- Module 7 ---"
 
-remote_check "M6: oc adm drain --delete-emptydir-data flag exists" \
+remote_check "M7: oc adm drain --delete-emptydir-data flag exists" \
     "oc adm drain --help 2>&1 | grep -c 'delete-emptydir-data' || echo '0 occurrences'"
 
-remote_check "M6: oc adm cordon (help check)" \
+remote_check "M7: oc adm cordon (help check)" \
     "oc adm cordon --help 2>&1 | head -3"
 
-remote_check "M6: oc adm uncordon (help check)" \
+remote_check "M7: oc adm uncordon (help check)" \
     "oc adm uncordon --help 2>&1 | head -3"
 
-remote_check "M6: oc scale machineset --dry-run=client" \
+remote_check "M7: oc scale machineset --dry-run=client" \
     "oc login '${OCP_API}' --username='${OC_USER}' --password='${OC_PASS}' --insecure-skip-tls-verify=true -q 2>&1; \
      MS=\$(oc get machineset -n openshift-machine-api -o name 2>/dev/null | head -1); \
      if [[ -n \"\$MS\" ]]; then \
@@ -162,7 +178,7 @@ remote_check "M6: oc scale machineset --dry-run=client" \
        echo 'No MachineSet found (expected in SNO/single-node environments)'; \
      fi"
 
-remote_check "M6: oc adm top nodes (read-only)" \
+remote_check "M7: oc adm top nodes (read-only)" \
     "oc login '${OCP_API}' --username='${OC_USER}' --password='${OC_PASS}' --insecure-skip-tls-verify=true -q 2>&1; \
      oc adm top nodes 2>&1 | head -5 || true"
 

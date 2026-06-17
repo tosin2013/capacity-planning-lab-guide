@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Module 8 Lightspeed API Query Validation Script
+Module 9 Lightspeed API Query Validation Script
 ================================================
-Sends every Lab 8A–8E workshop prompt from module-08.adoc to the LiteMaaS
+Sends every Lab 9A–9E workshop prompt from module-09.adoc to the LiteMaaS
 OpenAI-compatible API (/v1/chat/completions) and validates each response for
 required keywords and PromQL fragments.
 
