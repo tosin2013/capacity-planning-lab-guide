@@ -204,6 +204,10 @@ To compare `checkout-api` against the well-sized sample apps from earlier module
 
 === Part 3: Investigate the Evidence (Ops Hat)
 
+Your dashboard should look similar to this — notice the red CPU utilization gauges, the large gap between requested and actual CPU, and the negative memory waste values:
+
+image::module-04-dashboard-before-fix.png[Module 4 Right-Sizing Dashboard — before fix,align="center"]
+
 With the dashboard loaded, systematically read each panel to build your diagnosis.
 
 ==== Panel 1 & 2: CPU and Memory Utilization Gauges
