@@ -63,10 +63,10 @@ If your SSH session to the student bastion has timed out, reconnect now:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-ssh {student-cluster-bastion-user}@{student-cluster-bastion} -o StrictHostKeyChecking=no
+ssh lab-user@{student-cluster-bastion} -o StrictHostKeyChecking=no
 ----
 
-Password: `{student-cluster-bastion-password}`
+Password: `{student-cluster-password}`
 
 Then log in to OpenShift:
 
