@@ -194,13 +194,18 @@ oc get pods -n {namespace} -o json | jq -r '
 .Sample Output
 [source,textinfo]
 ----
-besteffort-app-5598f76d5b-9jtz4    none    none
+besteffort-app-5598f76d5b-9jtz4    10m     16Mi
 burstable-app-9b598b884-m2h5w      100m    128Mi
 critical-app-6c4456cfc5-bj4zs      200m    256Mi
 critical-app-6c4456cfc5-ln9pp      200m    256Mi
 guaranteed-app-bc4d9685d-jpbhm     200m    256Mi
-load-generator-67567c576-hdvkj     100m    128Mi
+load-generator-67567c576-hdvkj     10m     128Mi
 ----
+
+[NOTE]
+====
+The `besteffort-app` deployment manifest does *not* specify resource requests, but OpenShift namespaces with a *LimitRange* automatically inject default values (here, `10m` CPU / `16Mi` memory). This makes the pod *Burstable* rather than *BestEffort*. If your namespace has no LimitRange, you would see `none` / `none` and a true BestEffort QoS class.
+====
 
 [WARNING]
 ====
@@ -208,7 +213,7 @@ load-generator-67567c576-hdvkj     100m    128Mi
 
 * `critical-app` requested 200m CPU but uses only 15m (~7.5% utilization)
 * `burstable-app` requested 100m CPU but uses only 2m (~2% utilization)
-* `besteffort-app` has NO requests - dangerous! (We'll fix this in Module 3)
+* `besteffort-app` has minimal requests (LimitRange defaults) — it is still under-specified and at eviction risk
 
 *Financial Impact*: If this pattern exists across 100 namespaces, you're wasting 85-90% of your infrastructure budget.
 ====

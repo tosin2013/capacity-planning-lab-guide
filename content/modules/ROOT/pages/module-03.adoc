@@ -137,10 +137,10 @@ oc get deployment load-generator -n {namespace} -o yaml | grep -A 10 "resources:
 ----
 resources:
   requests:
-    cpu: 100m
+    cpu: 10m
     memory: 128Mi
   limits:
-    cpu: 500m
+    cpu: 200m
     memory: 256Mi
 ----
 

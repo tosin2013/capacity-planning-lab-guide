@@ -47,6 +47,9 @@ asciidoc:
     hub_api_url: ""          # https://api.hub.<guid>.<domain>:6443
     hub_username: ""         # student-<student-guid>  (e.g. student-student-01)
     hub_password: ""         # shared hub password (all students use same password)
+    # Hub admin credentials — used in Module 4 to deploy dashboard ConfigMaps on the hub
+    hub_admin_user: ""       # kubeadmin (injected by Showroom from hub provision data)
+    hub_admin_password: ""   # hub kubeadmin password (injected by Showroom)
     hub_dev_grafana_url: "" # https://grafana-dev-open-cluster-management-observability.apps.hub.<guid>.<domain>
     # Legacy / fallback — kept for backward compat with existing module references
     rhacm_console: ""

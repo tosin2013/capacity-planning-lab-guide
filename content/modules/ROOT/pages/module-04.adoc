@@ -91,6 +91,12 @@ mkdir -p ~/module-04 && cd ~/module-04
 curl -fsSO $BASE/content/modules/ROOT/examples/module-04/checkout-api-bad.yaml
 curl -fsSO $BASE/content/modules/ROOT/examples/module-04/checkout-api-fixed.yaml
 curl -fsSO $BASE/content/modules/ROOT/examples/module-04/right-sizing-dashboard.yaml
+
+# Ensure the right-sizer script from Module 3 is available
+mkdir -p ~/module-03
+curl -fsSo ~/module-03/resource-right-sizer.sh \
+  $BASE/content/modules/ROOT/examples/module-03/resource-right-sizer.sh
+chmod +x ~/module-03/resource-right-sizer.sh
 ----
 
 Deploy the deliberately mis-sized `checkout-api`:
@@ -238,6 +244,16 @@ This panel shows how aggressively the kernel's CFS scheduler is throttling each 
 * Despite the huge CPU request, `checkout-api` should show minimal throttling because the 1-core limit gives plenty of headroom. The problem here is waste, not throttling.
 * Other pods with tighter limits may show higher throttle rates.
 
+==== Panel 7 & 8: CPU and Memory Waste (Bar Gauges)
+
+The bottom row quantifies the *absolute waste* per pod — the gap between what was requested and what is actually used.
+
+*What to look for:*
+
+* *CPU Waste*: `checkout-api` should show a large bar (~470m per pod). This is the raw CPU capacity being held hostage — reserved but unused. After right-sizing, this bar should shrink to near zero.
+* *Memory Waste*: `checkout-api` may show a *negative* value (actual usage exceeds the request). Negative memory waste confirms under-provisioning — the opposite problem from CPU.
+* Compare against well-sized pods like `guaranteed-app` which should show small or near-zero waste bars.
+
 ==== Confirm with CLI (Ops Report)
 
 Back in the terminal, generate the numbers that support your dashboard observations:
@@ -301,13 +317,20 @@ If the right-sizer reports 0 for CPU or memory, the deployment may not have been
 
 ==== Step 2: Apply the Fix
 
-Apply the right-sized values. Use the command output from the right-sizer, or apply the pre-built fixed manifest:
+Apply the right-sized values using `oc set resources`:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
 oc set resources deployment checkout-api -n {namespace} \
   --requests=cpu=30m,memory=128Mi \
   --limits=cpu=100m,memory=192Mi
+----
+
+Alternatively, you can apply the pre-built fixed manifest which contains identical values:
+
+[source,bash,subs="+attributes"]
+----
+oc apply -f ~/module-04/checkout-api-fixed.yaml -n {namespace}
 ----
 
 Wait for the rollout to complete:
