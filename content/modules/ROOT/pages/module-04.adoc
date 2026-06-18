@@ -72,7 +72,7 @@ Then log in to OpenShift:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc login -u admin -p {student-cluster-password} {student-cluster-api} --insecure-skip-tls-verify=true
+oc login -u kubeadmin -p {student-cluster-admin-password} {student-cluster-api} --insecure-skip-tls-verify=true
 ----
 ====
 

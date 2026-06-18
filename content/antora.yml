@@ -35,6 +35,8 @@ asciidoc:
     student-cluster-bastion: ""
     # SSH password for lab-user on the student bastion (injected by Showroom)
     student-cluster-password: ""
+    # OCP kubeadmin password for the student cluster (injected by Showroom from provision data)
+    student-cluster-admin-password: ""
 
     # Hub cluster URLs (RHACM and Grafana run on the hub — Module 5 "God's-Eye Dashboard")
     # Populated from hub agnosticd_user_info after hub provisioning
