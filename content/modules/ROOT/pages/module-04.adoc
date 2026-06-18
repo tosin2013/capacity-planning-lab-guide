@@ -19,7 +19,7 @@ In the previous module you learned the *theory* of right-sizing — QoS classes,
 
 === The Setup
 
-Your team's `checkout-api` service was recently deployed to the `{namespace}` namespace. The developer who wrote the deployment manifest made two common mistakes:
+Your team's `checkout-api` service was recently deployed to a new `right-sizing-lab` namespace on your student cluster. The developer who wrote the deployment manifest made two common mistakes:
 
 [cols="2,3,3",options="header"]
 |===
@@ -81,10 +81,12 @@ oc login -u kubeadmin -p {student-cluster-admin-password} {student-cluster-api} 
 
 === Part 1: Deploy the Broken Application (Dev Hat)
 
-First, download the lab assets:
+First, create a dedicated namespace for this module's exercise and download the lab assets:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
+oc new-project right-sizing-lab 2>/dev/null || oc project right-sizing-lab
+
 BASE=https://raw.githubusercontent.com/tosin2013/capacity-planning-lab-guide/main
 mkdir -p ~/module-04 && cd ~/module-04
 
@@ -103,21 +105,21 @@ Deploy the deliberately mis-sized `checkout-api`:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc apply -f ~/module-04/checkout-api-bad.yaml -n {namespace}
+oc apply -f ~/module-04/checkout-api-bad.yaml -n right-sizing-lab
 ----
 
 Wait for the pods to start:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc rollout status deployment/checkout-api -n {namespace} --timeout=120s
+oc rollout status deployment/checkout-api -n right-sizing-lab --timeout=120s
 ----
 
 Verify the pods are running:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc get pods -n {namespace} -l app=checkout-api
+oc get pods -n right-sizing-lab -l app=checkout-api
 ----
 
 .Sample Output
@@ -132,7 +134,7 @@ Check the resource configuration that was deployed:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc get deployment checkout-api -n {namespace} \
+oc get deployment checkout-api -n right-sizing-lab \
   -o jsonpath='requests cpu={.spec.template.spec.containers[0].resources.requests.cpu} memory={.spec.template.spec.containers[0].resources.requests.memory} | limits cpu={.spec.template.spec.containers[0].resources.limits.cpu} memory={.spec.template.spec.containers[0].resources.limits.memory}{"\n"}'
 ----
 
@@ -195,7 +197,9 @@ In the left sidebar, click *Dashboards* → *Custom* → *Module 4 — Right-Siz
 
 [TIP]
 ====
-*Set the Namespace variable* at the top of the dashboard to `{namespace}` and the *Cluster* variable to your student cluster name (e.g. `sno-user-1`). The dashboard will filter all panels to show only workloads in your namespace.
+*Set the Namespace variable* at the top of the dashboard to `right-sizing-lab` and the *Cluster* variable to your student cluster name (e.g. `sno-user-1`). The dashboard will filter all panels to show only workloads in your namespace.
+
+To compare `checkout-api` against the well-sized sample apps from earlier modules, select `All` in the Namespace dropdown — the dashboard will show pods from both `right-sizing-lab` and `{namespace}` side by side.
 ====
 
 === Part 3: Investigate the Evidence (Ops Hat)
@@ -261,21 +265,21 @@ Back in the terminal, generate the numbers that support your dashboard observati
 [source,bash,role=execute,subs="+attributes"]
 ----
 echo "=== Resource Configuration ==="
-oc get deployment checkout-api -n {namespace} \
+oc get deployment checkout-api -n right-sizing-lab \
   -o jsonpath='  Requests: cpu={.spec.template.spec.containers[0].resources.requests.cpu}, memory={.spec.template.spec.containers[0].resources.requests.memory}{"\n"}  Limits:   cpu={.spec.template.spec.containers[0].resources.limits.cpu}, memory={.spec.template.spec.containers[0].resources.limits.memory}{"\n"}'
 
 echo ""
 echo "=== Actual Resource Consumption ==="
-oc adm top pods -n {namespace} -l app=checkout-api
+oc adm top pods -n right-sizing-lab -l app=checkout-api
 
 echo ""
 echo "=== Pod QoS Class ==="
-oc get pods -n {namespace} -l app=checkout-api \
+oc get pods -n right-sizing-lab -l app=checkout-api \
   -o jsonpath='{range .items[*]}{.metadata.name}: {.status.qosClass}{"\n"}{end}'
 
 echo ""
 echo "=== Recent Events (OOMKills, warnings) ==="
-oc get events -n {namespace} --field-selector involvedObject.kind=Pod \
+oc get events -n right-sizing-lab --field-selector involvedObject.kind=Pod \
   --sort-by='.lastTimestamp' 2>/dev/null | grep -i -E "checkout-api|oom|kill|back-off" | tail -5
 ----
 
@@ -298,7 +302,7 @@ Use the `resource-right-sizer.sh` script from Module 3 to query Prometheus for t
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-NAMESPACE={namespace} POD_SELECTOR="checkout-api.*" ~/module-03/resource-right-sizer.sh
+NAMESPACE=right-sizing-lab POD_SELECTOR="checkout-api.*" ~/module-03/resource-right-sizer.sh
 ----
 
 The script will output:
@@ -321,7 +325,7 @@ Apply the right-sized values using `oc set resources`:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc set resources deployment checkout-api -n {namespace} \
+oc set resources deployment checkout-api -n right-sizing-lab \
   --requests=cpu=30m,memory=128Mi \
   --limits=cpu=100m,memory=192Mi
 ----
@@ -330,21 +334,21 @@ Alternatively, you can apply the pre-built fixed manifest which contains identic
 
 [source,bash,subs="+attributes"]
 ----
-oc apply -f ~/module-04/checkout-api-fixed.yaml -n {namespace}
+oc apply -f ~/module-04/checkout-api-fixed.yaml -n right-sizing-lab
 ----
 
 Wait for the rollout to complete:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc rollout status deployment/checkout-api -n {namespace} --timeout=60s
+oc rollout status deployment/checkout-api -n right-sizing-lab --timeout=60s
 ----
 
 Confirm the new resource values:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc get deployment checkout-api -n {namespace} \
+oc get deployment checkout-api -n right-sizing-lab \
   -o jsonpath='requests cpu={.spec.template.spec.containers[0].resources.requests.cpu} memory={.spec.template.spec.containers[0].resources.requests.memory} | limits cpu={.spec.template.spec.containers[0].resources.limits.cpu} memory={.spec.template.spec.containers[0].resources.limits.memory}{"\n"}'
 ----
 
@@ -358,7 +362,7 @@ requests cpu=30m memory=128Mi | limits cpu=100m memory=192Mi
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc get pods -n {namespace} -l app=checkout-api \
+oc get pods -n right-sizing-lab -l app=checkout-api \
   -o jsonpath='{range .items[*]}{.metadata.name}: {.status.qosClass}{"\n"}{end}'
 ----
 
@@ -408,12 +412,12 @@ Run the same ops report as before to confirm the improvement numerically:
 [source,bash,role=execute,subs="+attributes"]
 ----
 echo "=== Current Resource Configuration ==="
-oc get deployment checkout-api -n {namespace} \
+oc get deployment checkout-api -n right-sizing-lab \
   -o jsonpath='  Requests: cpu={.spec.template.spec.containers[0].resources.requests.cpu}, memory={.spec.template.spec.containers[0].resources.requests.memory}{"\n"}  Limits:   cpu={.spec.template.spec.containers[0].resources.limits.cpu}, memory={.spec.template.spec.containers[0].resources.limits.memory}{"\n"}'
 
 echo ""
 echo "=== Actual Resource Consumption ==="
-oc adm top pods -n {namespace} -l app=checkout-api
+oc adm top pods -n right-sizing-lab -l app=checkout-api
 ----
 
 ==== Discussion: Policy Prevention
@@ -435,22 +439,22 @@ These guardrails work *with* dashboards, not instead of them. Dashboards catch e
 
 == Module 4 Cleanup
 
-Remove the `checkout-api` deployment to leave the namespace clean for subsequent modules:
+Delete the `right-sizing-lab` namespace to remove all resources created in this module:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc delete deployment checkout-api -n {namespace}
+oc delete namespace right-sizing-lab
 ----
 
 .Sample Output
 [source,text]
 ----
-deployment.apps "checkout-api" deleted
+namespace "right-sizing-lab" deleted
 ----
 
 [NOTE]
 ====
-*Optional*: If you want to keep the Grafana dashboard for reference in later modules, leave the ConfigMap in place. It will not interfere with other modules. To remove it:
+*Optional*: The Grafana dashboard ConfigMap on the hub will not interfere with other modules — you can leave it for reference. To remove it:
 
 [source,bash,subs="+attributes"]
 ----
