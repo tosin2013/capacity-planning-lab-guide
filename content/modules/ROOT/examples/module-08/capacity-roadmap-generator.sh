@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # capacity-roadmap-generator.sh
-# Module 7 — Strategic Roadmapping: The 12-Month Plan
+# Module 8 — Strategic Roadmapping: The 12-Month Plan
 #
 # Queries the student cluster Prometheus API to collect live capacity metrics
 # (pod count, worker nodes, CPU allocation/usage, etcd size, pod velocity),
@@ -43,7 +43,7 @@ command -v oc     &>/dev/null || error "'oc' not found. Run this script on your 
 command -v curl   &>/dev/null || error "'curl' not found."
 command -v python3 &>/dev/null || error "'python3' not found."
 
-header "Module 7 — Capacity Roadmap Generator"
+header "Module 8 — Capacity Roadmap Generator"
 info "Namespace  : ${NAMESPACE}"
 info "Window     : ${WINDOW_DAYS} days"
 info "Node CPU   : ${NODE_CPU} cores (allocatable)"

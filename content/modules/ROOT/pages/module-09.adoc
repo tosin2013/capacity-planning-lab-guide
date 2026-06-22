@@ -210,7 +210,7 @@ In Module 3 you experienced OOMKilled pods, CPU throttling, QoS classes, and HPA
 
 [NOTE]
 ====
-All interactions in Labs 8A, 8B, and 8C happen inside the *Lightspeed chat panel* in the OCP web console. There are no terminal commands to run. Open the chat panel now at:
+All interactions in Labs 9A, 9B, and 9C happen inside the *Lightspeed chat panel* in the OCP web console. There are no terminal commands to run. Open the chat panel now at:
 
 `{student-cluster-console}`
 
@@ -768,7 +768,7 @@ As the platform engineer responsible for this deployment, *you should evaluate b
 
 _10 minutes — requires cluster interaction (pre-enabled on your student cluster)_
 
-In Labs 8A–8D, Lightspeed answered every question using its RAG knowledge base — authoritative, but hypothetical. Now that your cluster has the MCP server active, Lightspeed can call the Kubernetes API to read *live* resource state before forming its answer.
+In Labs 9A–9D, Lightspeed answered every question using its RAG knowledge base — authoritative, but hypothetical. Now that your cluster has the MCP server active, Lightspeed can call the Kubernetes API to read *live* resource state before forming its answer.
 
 [NOTE]
 ====
@@ -797,7 +797,7 @@ Are any of them in a non-Running state?
 .What to look for
 [TIP]
 ====
-With MCP enabled, Lightspeed should return the *actual deployment names* from your cluster rather than a generic answer. Compare this to the RAG-only responses in Labs 8A–8C — those returned general Kubernetes knowledge. This response should reference pods you actually deployed in earlier modules.
+With MCP enabled, Lightspeed should return the *actual deployment names* from your cluster rather than a generic answer. Compare this to the RAG-only responses in Labs 9A–9C — those returned general Kubernetes knowledge. This response should reference pods you actually deployed in earlier modules.
 
 If Lightspeed gives a generic answer about checking deployments, cluster interaction may still be initialising — wait 2 minutes and try again.
 ====
@@ -842,19 +842,19 @@ This is the core value proposition of MCP introspection: AI-assisted capacity op
 
 You have now completed all four labs. Here is what you accomplished:
 
-*Lab 8A — Developer Queries*
+*Lab 9A — Developer Queries*
 
 ✅ Diagnosed OOMKilled events using Lightspeed as a debugging assistant +
 ✅ Generated QoS explanations and HPA YAML configurations +
 ✅ Authored CPU throttling PromQL with AI assistance
 
-*Lab 8B — Infrastructure Engineer Queries*
+*Lab 9B — Infrastructure Engineer Queries*
 
 ✅ Got step-by-step guidance on increasing maxPods safely +
 ✅ Generated etcd monitoring queries and growth forecasts +
 ✅ Explored cluster architecture trade-offs through conversational AI
 
-*Lab 8C — Forecasting Assistant*
+*Lab 9C — Forecasting Assistant*
 
 ✅ Rebuilt the Module 2 Pod Velocity model with AI-assisted PromQL +
 ✅ Calculated capacity runway with explicit maths shown by the model +
@@ -862,12 +862,12 @@ You have now completed all four labs. Here is what you accomplished:
 ✅ Applied Black Friday buffer planning via conversational analysis +
 ✅ Produced an executive capacity summary from raw data
 
-*Lab 8D — Model Comparison*
+*Lab 9D — Model Comparison*
 
 ✅ Compared Granite 3.2 8B and Qwen3 14B on the same capacity question +
 ✅ Evaluated model choice as a capacity and cost trade-off
 
-*Lab 8E — Live PromQL via MCP*
+*Lab 9E — Live Cluster Queries via MCP*
 
 ✅ Asked Lightspeed questions that returned real cluster data via the MCP metrics toolset +
 ✅ Verified that MCP introspection replaces hypothetical scenarios with actual numbers
