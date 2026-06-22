@@ -773,7 +773,7 @@ Wait until the `worker` MachineConfigPool reports `UPDATED=true` and `DEGRADED=f
 [source,bash,role=execute]
 ----
 echo "Waiting for MCO rollback to complete (30-45 min)..."
-oc wait mcp/worker --for=condition=Updated=True --timeout=3600s
+oc wait mcp/master --for=condition=Updated=True --timeout=3600s
 ----
 
 .Sample Output (when complete)

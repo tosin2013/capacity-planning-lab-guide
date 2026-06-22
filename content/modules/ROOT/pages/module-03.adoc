@@ -470,6 +470,31 @@ When ready to continue, reset to the right-sizer recommendation:
 NAMESPACE={namespace} APPLY=true ~/module-03/resource-right-sizer.sh
 ----
 
+[WARNING]
+====
+*Fresh cluster? Apply a memory safety floor before Part 5.*
+
+On a cluster deployed today, the right-sizer's P95 memory recommendation may be very low (e.g. 8Mi) because the workload has not yet experienced stress traffic. Part 5 applies `TARGET_RPS=500` which significantly increases memory usage — a request of 8Mi will cause OOMKills before the HPA can observe a stable metric.
+
+Run this after the right-sizer to enforce a minimum memory request of 64Mi while preserving the right-sizer's CPU recommendation:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+CURRENT_MEM_REQ=$(oc get deployment load-generator -n {namespace} -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}')
+CURRENT_MEM_REQ_MI=$(echo "${CURRENT_MEM_REQ}" | sed 's/Mi//')
+if [ "${CURRENT_MEM_REQ_MI}" -lt 64 ] 2>/dev/null; then
+  echo "Memory request ${CURRENT_MEM_REQ} is below 64Mi — applying safety floor"
+  oc set resources deployment load-generator -n {namespace} \
+    --requests=memory=64Mi --limits=memory=128Mi
+  oc rollout status deployment/load-generator -n {namespace} --timeout=60s
+else
+  echo "Memory request ${CURRENT_MEM_REQ} is sufficient — no change needed"
+fi
+----
+
+This is only needed on day-zero clusters. After 24+ hours of traffic, the right-sizer's memory recommendation will be high enough that no floor is necessary.
+====
+
 === Part 5: The Scale - Implement HPA
 
 With an accurate request in place, the HPA controller has a meaningful baseline to work from.

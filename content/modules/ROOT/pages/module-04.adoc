@@ -158,11 +158,10 @@ Now switch to the ops perspective. You need visibility into what is happening in
 *Dashboard deployment requires hub cluster access.* The Grafana instance runs on the RHACM hub cluster, not on your student cluster. You will temporarily switch your `oc` context to the hub, apply the dashboard ConfigMap, then switch back.
 ====
 
-Save your current student cluster context, then log in to the hub:
+Log in to the hub cluster using the hub admin credentials:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc config rename-context $(oc config current-context) student-context 2>/dev/null || true
 oc login -u {hub_admin_user} -p {hub_admin_password} {hub_api_url} --insecure-skip-tls-verify=true
 ----
 
@@ -184,8 +183,14 @@ Switch back to your student cluster:
 
 [source,bash,role=execute,subs="+attributes"]
 ----
-oc config use-context student-context
+oc login --token=$(cat ~/student-token.txt) --server={student-cluster-api} --insecure-skip-tls-verify=true 2>/dev/null \
+  || oc login -u kubeadmin -p {student-cluster-admin-password} {student-cluster-api} --insecure-skip-tls-verify=true
 ----
+
+[TIP]
+====
+If you haven't saved your student token yet, log in with kubeadmin. You can save a token for future context switches with: `oc whoami -t > ~/student-token.txt`
+====
 
 ==== Navigate to the Dashboard
 
@@ -462,10 +467,10 @@ namespace "right-sizing-lab" deleted
 
 [source,bash,subs="+attributes"]
 ----
-oc config use-context student-context 2>/dev/null || true
 oc login -u {hub_admin_user} -p {hub_admin_password} {hub_api_url} --insecure-skip-tls-verify=true
 oc delete configmap module-4---right-sizing-activity -n open-cluster-management-observability
-oc config use-context student-context
+oc login --token=$(cat ~/student-token.txt) --server={student-cluster-api} --insecure-skip-tls-verify=true 2>/dev/null \
+  || oc login -u kubeadmin -p {student-cluster-admin-password} {student-cluster-api} --insecure-skip-tls-verify=true
 ----
 ====
 
