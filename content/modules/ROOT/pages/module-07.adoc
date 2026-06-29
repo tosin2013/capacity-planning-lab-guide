@@ -239,7 +239,14 @@ echo "RHACM Grafana: {hub_grafana_url}"
 |===
 +
 . Click *Log in* — you are redirected back to Grafana automatically.
-. In the left sidebar navigate to: *Dashboards* → *Multi-Cluster Capacity Planning*
+. In the left sidebar navigate to: *Dashboards* → *Custom* → *Multi-Cluster Capacity Planning*
+
+[WARNING]
+====
+*You must select your own cluster or you will see incorrect results.*
+
+Use the *Cluster* dropdown at the top of the dashboard to select your own student cluster (e.g. `student-02`). Leaving it on *All* or another student's cluster will show data that does not correspond to your environment.
+====
 
 Keep this open in a separate browser window - you'll need it during the simulation.
 

@@ -459,11 +459,17 @@ Because `viewers_can_edit` is enabled in this Grafana instance, you can also cli
 .Pod Velocity Forecast Dashboard — Cluster: student-01 / Namespace: capacity-workshop
 image::module-02-grafana-dashboard.png[Pod Velocity Forecast Dashboard showing 6 pods/month and 1 node needed for the capacity-workshop namespace,align="center"]
 
+[WARNING]
+====
+*You must select your own cluster or you will see incorrect results.*
+
+The *Cluster* dropdown may default to another student's cluster. Use the dropdown at the top of the dashboard to select your own cluster (e.g. `student-02`). The *Namespace* should be `capacity-workshop`.
+
+With those selections the Stat and Gauge values match `pod-velocity-calculator.sh` directly — if the script printed "Add 1 worker node(s)", the Gauge shows *1* (green).
+====
+
 [NOTE]
 ====
-The *Cluster* and *Namespace* dropdowns default to `student-01` and `capacity-workshop`.
-With those selections the Stat and Gauge values match `pod-velocity-calculator.sh` directly — if the script printed "Add 1 worker node(s)", the Gauge shows *1* (green).
-
 Now change *Namespace* to *All* — notice how the numbers jump:
 ====
 
