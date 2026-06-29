@@ -195,11 +195,16 @@ In the left sidebar, click *Dashboards* → *Custom* → *Module 4 — Right-Siz
 
 image::module-04-grafana-custom-dashboards.png[Grafana Custom Dashboards — find Module 4,align="center"]
 
-[TIP]
+[WARNING]
 ====
-*Set the Namespace variable* at the top of the dashboard to `right-sizing-lab` and the *Cluster* variable to your student cluster name (e.g. `sno-user-1`). The dashboard will filter all panels to show only workloads in your namespace.
+*You must select your own namespace and cluster or you will see incorrect results.*
 
-To compare `checkout-api` against the well-sized sample apps from earlier modules, select `All` in the Namespace dropdown — the dashboard will show pods from both `right-sizing-lab` and `{namespace}` side by side.
+At the top of the dashboard, set:
+
+* *Namespace* → `right-sizing-lab`
+* *Cluster* → your student cluster name (e.g. `student-02`)
+
+If these are not set correctly, the panels will show data from other students' workloads or return empty results.
 ====
 
 === Part 3: Investigate the Evidence (Ops Hat)
