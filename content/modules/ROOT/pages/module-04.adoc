@@ -56,23 +56,24 @@ The *dashboard* is the shared language between these two roles.
 
 == Connecting to Your Student Cluster
 
-[IMPORTANT]
-.Reconnect if needed
+[NOTE]
 ====
-If your SSH session to the student bastion has timed out, reconnect now:
+All terminal commands in this lab run on your *student cluster*.
+If your SSH session ended, reconnect before continuing:
 
-[source,bash,role=execute,subs="+attributes"]
+[source,bash,subs="+attributes",role=execute]
 ----
-ssh lab-user@{student-cluster-bastion} -o StrictHostKeyChecking=no
+ssh lab-user@{student-cluster-bastion}
 ----
 
-Password: `{student-cluster-password}`
+SSH password: `{student-cluster-password}`
 
-Then log in to OpenShift:
+After connecting, log in to your student cluster:
 
-[source,bash,role=execute,subs="+attributes"]
+[source,bash,subs="+attributes",role=execute]
 ----
-oc login -u kubeadmin -p {student-cluster-admin-password} {student-cluster-api} --insecure-skip-tls-verify=true
+oc login {student-cluster-api} -u kubeadmin -p {student-cluster-password} \
+  --insecure-skip-tls-verify=true
 ----
 ====
 
