@@ -158,8 +158,8 @@ Save your student context and log into the hub:
 STUDENT_CTX=$(oc config current-context)
 echo "Student context saved: $STUDENT_CTX"
 oc login {hub_api_url} \
-  --username={hub_admin_user} \
-  --password={hub_admin_password} \
+  --username={hub_username} \
+  --password={hub_password} \
   --insecure-skip-tls-verify=true
 ----
 
@@ -462,8 +462,8 @@ namespace "right-sizing-lab" deleted
 ----
 STUDENT_CTX=$(oc config current-context)
 oc login {hub_api_url} \
-  --username={hub_admin_user} \
-  --password={hub_admin_password} \
+  --username={hub_username} \
+  --password={hub_password} \
   --insecure-skip-tls-verify=true
 oc delete configmap module-4---right-sizing-activity -n open-cluster-management-observability
 oc config use-context $STUDENT_CTX
