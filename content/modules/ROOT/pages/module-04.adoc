@@ -371,7 +371,9 @@ checkout-api-6c586b5cb6-abc12: reason=OOMKilled, exitCode=137
 checkout-api-6c586b5cb6-def34: reason=OOMKilled, exitCode=137
 ----
 
-image::module-04-dashboard-under-load.png[Module 4 Right-Sizing Dashboard — under load showing OOMKills,align="center"]
+image::module-04-dashboard-under-load.png[Module 4 Right-Sizing Dashboard — under load showing OOMKills (top panels),align="center"]
+
+image::module-04-dashboard-under-load-bottom.png[Module 4 Right-Sizing Dashboard — under load (bottom panels showing CPU/Memory waste),align="center"]
 
 [NOTE]
 ====
@@ -523,7 +525,9 @@ echo "=== Actual Resource Consumption ==="
 oc adm top pods -n right-sizing-lab -l app=checkout-api
 ----
 
-image::module-04-dashboard-after-fix.png[Module 4 Right-Sizing Dashboard — after fix showing healthy metrics,align="center"]
+image::module-04-dashboard-after-fix.png[Module 4 Right-Sizing Dashboard — after fix showing healthy metrics (top panels),align="center"]
+
+image::module-04-dashboard-after-fix-bottom.png[Module 4 Right-Sizing Dashboard — after fix (bottom panels showing reduced waste),align="center"]
 
 ==== Optional: Prove the Fix Under Load
 
