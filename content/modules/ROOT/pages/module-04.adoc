@@ -67,14 +67,6 @@ ssh lab-user@{student-cluster-bastion}
 ----
 
 SSH password: `{student-cluster-password}`
-
-After connecting, log in to your student cluster:
-
-[source,bash,subs="+attributes",role=execute]
-----
-oc login {student-cluster-api} -u kubeadmin -p {student-cluster-password} \
-  --insecure-skip-tls-verify=true
-----
 ====
 
 [#lab4]
