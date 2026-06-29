@@ -193,6 +193,8 @@ Open the RHACM Grafana console in your browser:
 
 In the left sidebar, click *Dashboards* → *Custom* → *Module 4 — Right-Sizing Activity*.
 
+image::module-04-grafana-custom-dashboards.png[Grafana Custom Dashboards — find Module 4,align="center"]
+
 [TIP]
 ====
 *Set the Namespace variable* at the top of the dashboard to `right-sizing-lab` and the *Cluster* variable to your student cluster name (e.g. `sno-user-1`). The dashboard will filter all panels to show only workloads in your namespace.
@@ -204,7 +206,9 @@ To compare `checkout-api` against the well-sized sample apps from earlier module
 
 Your dashboard should look similar to this — notice the red CPU utilization gauges, the large gap between requested and actual CPU, and the negative memory waste values:
 
-image::module-04-dashboard-before-fix.png[Module 4 Right-Sizing Dashboard — before fix,align="center"]
+image::module-04-dashboard-before-fix.png[Module 4 Right-Sizing Dashboard — before fix (top panels),align="center"]
+
+image::module-04-dashboard-before-fix-bottom.png[Module 4 Right-Sizing Dashboard — before fix (bottom panels),align="center"]
 
 With the dashboard loaded, systematically read each panel to build your diagnosis.
 
