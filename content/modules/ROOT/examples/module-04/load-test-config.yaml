@@ -1,0 +1,31 @@
+---
+# kube-burner v2 job config — Module 4: Right-Sizing Load Test
+#
+# Deploys a single HTTP load pod targeting the checkout-api ClusterIP service.
+# wrk maintains persistent (keepalive) connections that force httpd to hold
+# worker processes in memory, pushing it above the dangerously low 64Mi limit
+# and triggering OOMKills.
+#
+# Expected effect:
+#   - checkout-api memory rises above 64Mi limit within 60-90 seconds
+#   - Kernel OOMKills the container (exit code 137)
+#   - Container restarts become visible on the Grafana dashboard
+#
+# Cleanup:
+#   oc delete pod -n right-sizing-lab -l app=load-test
+global:
+  gc: false
+  waitWhenFinished: true
+  measurements: []
+
+jobs:
+  - name: right-sizing-load-test
+    namespace: right-sizing-lab
+    jobIterations: 1
+    namespacedIterations: false
+    waitForDeletion: false
+    maxWaitTimeout: 2m
+    jobPause: 0s
+    objects:
+      - objectTemplate: load-test-pod.yaml
+        replicas: 1

@@ -1,0 +1,36 @@
+---
+# kube-burner pod template — Module 4 load generator
+#
+# Runs wrk with 4 threads and 200 keepalive connections against checkout-api.
+# The keepalive connections force httpd to maintain many concurrent worker
+# processes, pushing memory above the 64Mi limit and causing OOMKills.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: load-test-{{.Iteration}}-{{.Replica}}
+  labels:
+    app: load-test
+    module: "4"
+    demo.redhat.com/application: capacity-workshop
+spec:
+  containers:
+  - name: load
+    image: williamyeh/wrk:latest
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        echo "=== Module 4 Load Test — Right-Sizing OOMKill Demo ==="
+        echo "Target: http://checkout-api:8080 (4 threads, 200 connections)"
+        echo "This will push httpd memory above its 64Mi limit..."
+        while true; do
+          wrk -t4 -c200 -d60s --latency http://checkout-api:8080 \
+            || { echo "checkout-api not ready, retrying in 5s..."; sleep 5; }
+        done
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+  restartPolicy: Never
