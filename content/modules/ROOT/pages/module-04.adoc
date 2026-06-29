@@ -217,6 +217,11 @@ At the top of the dashboard, set:
 If these are not set correctly, the panels will show data from other students' workloads or return empty results.
 ====
 
+[NOTE]
+====
+*Dashboard update timing*: Metrics flow from your student cluster → Prometheus → RHACM Observability (Thanos) → Grafana. This pipeline takes *2–5 minutes* after deploying or changing workloads before the dashboard reflects new data. If panels appear empty or stale, wait a few minutes and refresh. Set the time range to *Last 5 minutes* for the most current view.
+====
+
 === Part 3: Investigate the Evidence (Ops Hat)
 
 Your dashboard should look similar to this — notice the red CPU utilization gauges, the large gap between requested and actual CPU, and the negative memory waste values:
@@ -470,7 +475,7 @@ The QoS class should be *Burstable* (requests < limits). This is the recommended
 
 ==== Dashboard Verification
 
-Return to the Grafana dashboard (*Module 4 — Right-Sizing Activity*) and refresh (or wait 10–30 seconds for auto-refresh).
+Return to the Grafana dashboard (*Module 4 — Right-Sizing Activity*). The new pods need 2–5 minutes to generate enough metrics for the dashboard to reflect the fix. Set the time range to *Last 5 minutes* so you only see the new (fixed) pods.
 
 *What should change:*
 
