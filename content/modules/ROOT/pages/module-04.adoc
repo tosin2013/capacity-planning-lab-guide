@@ -303,6 +303,64 @@ _"Your `checkout-api` deployment is requesting 500m CPU per replica but using on
 This is the conversation that dashboards enable. Without the dashboard, ops says "the cluster is full" and dev says "we're not using anything." With the dashboard, both teams see the same numbers.
 ====
 
+=== Part 3b: Simulate Production Traffic (Ops Hat)
+
+The dashboard at idle shows the *waste* story clearly — but the *pain* of memory under-provisioning is invisible because httpd is barely using memory without traffic. Let's simulate what happens when this service receives production-level requests.
+
+Start a load generator that sends concurrent requests to the `checkout-api` service:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc run load-generator -n right-sizing-lab \
+  --image=registry.access.redhat.com/ubi9/ubi-minimal:latest \
+  --restart=Never -- \
+  bash -c 'while true; do for i in $(seq 1 20); do curl -s http://checkout-api.right-sizing-lab.svc:8080/ > /dev/null & done; wait; done'
+----
+
+[IMPORTANT]
+====
+*Watch the dashboard now.* Within 60–90 seconds you will see:
+
+* *Container Restarts* panel turning red as pods get OOMKilled
+* *Memory Utilization* spiking as httpd processes connections
+* Pod restart count climbing — each restart is the kernel killing the container for exceeding its 64Mi memory limit
+
+This is the real cost of memory under-provisioning: under any production load, the service crashes repeatedly. The 64Mi limit that "worked" at idle becomes a ticking time bomb.
+====
+
+After 60–90 seconds, verify the OOMKills from the CLI:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+echo "=== Pod Status ==="
+oc get pods -n right-sizing-lab -l app=checkout-api
+
+echo ""
+echo "=== Last Termination Reason ==="
+oc get pods -n right-sizing-lab -l app=checkout-api \
+  -o jsonpath='{range .items[*]}{.metadata.name}: reason={.status.containerStatuses[0].lastState.terminated.reason}, exitCode={.status.containerStatuses[0].lastState.terminated.exitCode}{"\n"}{end}'
+----
+
+.Expected Output
+[source,text]
+----
+=== Pod Status ===
+NAME                            READY   STATUS    RESTARTS      AGE
+checkout-api-6c586b5cb6-abc12   1/1     Running   1 (30s ago)   5m
+checkout-api-6c586b5cb6-def34   1/1     Running   1 (30s ago)   5m
+
+=== Last Termination Reason ===
+checkout-api-6c586b5cb6-abc12: reason=OOMKilled, exitCode=137
+checkout-api-6c586b5cb6-def34: reason=OOMKilled, exitCode=137
+----
+
+image::module-04-dashboard-under-load.png[Module 4 Right-Sizing Dashboard — under load showing OOMKills,align="center"]
+
+[NOTE]
+====
+*Exit code 137* = the container was killed by signal 9 (SIGKILL). When the kernel's OOM killer terminates a process, it sends SIGKILL (128 + 9 = 137). This is the unmistakable signature of a memory limit that is too low.
+====
+
 === Part 4: Right-Size the Application (Dev Hat)
 
 Now switch to the developer perspective. Ops has shown you the evidence. Time to fix the resource settings.
@@ -329,6 +387,23 @@ The script will output:
 
 If the right-sizer reports 0 for CPU or memory, the deployment may not have been running long enough to accumulate metrics. Wait 2–3 minutes and re-run.
 ====
+
+==== Step 1b: Stop the Load Generator
+
+Before applying the fix, stop the load generator and let the pods settle:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc delete pod load-generator -n right-sizing-lab --ignore-not-found
+oc delete pods -n right-sizing-lab -l app=checkout-api --wait=false
+----
+
+Wait for the deployment to recreate fresh pods:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc rollout status deployment/checkout-api -n right-sizing-lab --timeout=60s
+----
 
 ==== Step 2: Apply the Fix
 
@@ -430,6 +505,38 @@ echo ""
 echo "=== Actual Resource Consumption ==="
 oc adm top pods -n right-sizing-lab -l app=checkout-api
 ----
+
+image::module-04-dashboard-after-fix.png[Module 4 Right-Sizing Dashboard — after fix showing healthy metrics,align="center"]
+
+==== Optional: Prove the Fix Under Load
+
+Re-run the same load generator to prove the right-sized application handles production traffic without crashing:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc run load-generator -n right-sizing-lab \
+  --image=registry.access.redhat.com/ubi9/ubi-minimal:latest \
+  --restart=Never -- \
+  bash -c 'while true; do for i in $(seq 1 20); do curl -s http://checkout-api.right-sizing-lab.svc:8080/ > /dev/null & done; wait; done'
+----
+
+Watch the dashboard for 60–90 seconds. This time:
+
+* *Container Restarts*: stays at 0 — no OOMKills
+* *Memory Utilization*: rises but stays safely below 100% (within the 192Mi limit)
+* *CPU Utilization*: may rise but stays within the 100m limit
+
+Stop the load generator when satisfied:
+
+[source,bash,role=execute,subs="+attributes"]
+----
+oc delete pod load-generator -n right-sizing-lab --ignore-not-found
+----
+
+[NOTE]
+====
+*Same load, same app, different resource settings = different outcomes.* The only change was adjusting requests and limits based on Prometheus P95 data. The application code is identical — proving that right-sizing is a platform engineering concern, not an application code fix.
+====
 
 ==== Discussion: Policy Prevention
 
