@@ -26,6 +26,25 @@ This workshop teaches strategic capacity planning through 9 comprehensive module
 
 **For Instructors**: Deploy via AgnosticD workload `ocp4_workload_capacity_planning_workshop` on Red Hat Demo Platform (RHDP) to create a complete workshop environment with Showroom lab guide and pre-deployed sample applications. See link:docs/hub-student-deployment.md[Hub-Student Deployment Guide] for AWS quota requirements, step-by-step provisioning instructions, and known issue workarounds.
 
+== Quick Start
+
+Automated onboarding handles prerequisites, configuration, and validation. See link:docs/quickstart.md[Quick Start Guide] for the full 5-minute walkthrough.
+
+[source,sh]
+----
+# End users — deploy a workshop environment:
+make setup        # interactive onboarding (installs tools, configures AWS)
+make dry-run      # preview deploy commands without executing
+make deploy       # provision hub + student clusters (~3-4 hours)
+
+# Maintainers — local content development:
+make setup-dev    # install dev tools (shellcheck, yamllint, nodejs)
+make build        # build Antora site locally
+make serve        # preview at http://localhost:8080
+----
+
+Run `make help` to see all available targets. The link:bootstrap.sh[bootstrap.sh] script can also be run directly without Make.
+
 == Workshop Features
 
 * ✅ 3,030+ lines of comprehensive AsciiDoc content
@@ -177,9 +196,17 @@ This workshop is maintained for use with Red Hat Demo Platform. For issues or im
 
 1. Fork the repository
 2. Create a feature branch
-3. Test changes locally using the container method above
-4. If adding or changing `oc` commands in any module, run the release validation process described in link:docs/release-validation.md[Release Validation Guide] to confirm the commands work with the target OCP version
-5. Submit a pull request
+3. Run `make setup-dev` to install development prerequisites
+4. Test changes locally using the container method above
+5. If adding or changing `oc` commands in any module, run the release validation process described in link:docs/release-validation.md[Release Validation Guide] to confirm the commands work with the target OCP version
+6. Submit a pull request
+
+=== Project Onboarding Files
+
+* `onboard.yml` — Declarative manifest defining prerequisites, config prompts, and validation checks
+* `bootstrap.sh` — Standalone onboarding script (reads `onboard.yml` at runtime via python3 + PyYAML)
+* `AGENTS.md` — Instructions for AI coding agents to interpret the onboarding manifest
+* `Makefile` — Shortcut targets for setup, build, deploy, and validation
 
 == License
 
