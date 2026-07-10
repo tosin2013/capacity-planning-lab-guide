@@ -4,7 +4,7 @@
 ACCOUNT     ?= $(shell grep '^account:' deploy/config.yml 2>/dev/null | awk '{print $$2}')
 HUB_GUID    ?= $(shell grep '^hub_guid:' deploy/config.yml 2>/dev/null | awk '{print $$2}')
 NUM_STUDENTS ?= $(shell grep '^num_students:' deploy/config.yml 2>/dev/null | awk '{print $$2}')
-STUDENTS    ?= $(shell seq -w 1 $(or $(NUM_STUDENTS),3) | tr '\n' ' ' | sed 's/ $$//')
+STUDENTS    ?= $(shell printf '%02d ' $$(seq 1 $(or $(NUM_STUDENTS),3)) | sed 's/ $$//')
 
 .PHONY: help setup setup-dev check deploy dry-run build serve stop clean student-info validate
 
@@ -26,6 +26,12 @@ deploy: ## Deploy hub + student clusters (reads deploy/config.yml)
 
 dry-run: ## Preview deploy commands without executing
 	bash scripts/deploy-workshop.sh --account $(ACCOUNT) --hub-guid $(HUB_GUID) --students "$(STUDENTS)" --dry-run
+
+request-quotas: ## Request AWS quota increases for all insufficient limits
+	bash scripts/request-quotas.sh
+
+request-quotas-dry: ## Preview quota requests without submitting
+	bash scripts/request-quotas.sh --dry-run
 
 build: ## Build Antora site locally (requires podman)
 	./utilities/lab-build

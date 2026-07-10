@@ -202,7 +202,7 @@ validation:
       cp deploy/vars/hub-aws.yml ~/agnosticd-v2-vars/hub-aws.yml
 
   - name: "Route53 hosted zone"
-    command: "aws route53 list-hosted-zones --query \"HostedZones[?Name=='${base_domain}.']\" --output text | grep -q HOSTED"
+    command: "test -n \"$(aws route53 list-hosted-zones --query \"HostedZones[?Name=='${base_domain}.'].Id\" --output text)\""
     required: false
     fail_message: >-
       No Route53 hosted zone found for ${base_domain}.
@@ -219,36 +219,28 @@ quota_checks:
     limit_command: "aws service-quotas get-service-quota --service-code ec2 --quota-code L-1216C47A --region ${aws_region} --query 'Quota.Value' --output text"
     usage_command: "aws ec2 describe-instances --region ${aws_region} --filters Name=instance-state-name,Values=running --query 'Reservations[].Instances[] | length(@)' --output text"
     fail_message: >-
-      Request a vCPU limit increase (need 96 for hub + 3 students at m7a.2xlarge):
-      aws service-quotas request-service-quota-increase
-        --region ${aws_region} --service-code ec2 --quota-code L-1216C47A --desired-value 128
+      Insufficient vCPUs. Run: make request-quotas (or: bash scripts/request-quotas.sh)
 
   - label: "Elastic IPs"
     needed: 16
     limit_command: "aws service-quotas get-service-quota --service-code ec2 --quota-code L-0263D0A3 --region ${aws_region} --query 'Quota.Value' --output text"
     usage_command: "aws ec2 describe-addresses --region ${aws_region} --query 'Addresses | length(@)' --output text"
     fail_message: >-
-      Release unused Elastic IPs or request a limit increase:
-      aws service-quotas request-service-quota-increase
-        --region ${aws_region} --service-code ec2 --quota-code L-0263D0A3 --desired-value 20
+      Insufficient Elastic IPs. Run: make request-quotas (or: bash scripts/request-quotas.sh)
 
   - label: "VPCs"
     needed: 8
     limit_command: "aws service-quotas get-service-quota --service-code vpc --quota-code L-F678F1CE --region ${aws_region} --query 'Quota.Value' --output text"
     usage_command: "aws ec2 describe-vpcs --region ${aws_region} --query 'Vpcs | length(@)' --output text"
     fail_message: >-
-      Delete unused VPCs or request a limit increase:
-      aws service-quotas request-service-quota-increase
-        --region ${aws_region} --service-code vpc --quota-code L-F678F1CE --desired-value 10
+      Insufficient VPCs. Run: make request-quotas (or: bash scripts/request-quotas.sh)
 
   - label: "NAT Gateways"
     needed: 8
     limit_command: "aws service-quotas get-service-quota --service-code vpc --quota-code L-FE5A380F --region ${aws_region} --query 'Quota.Value' --output text"
     usage_command: "aws ec2 describe-nat-gateways --region ${aws_region} --filter Name=state,Values=available --query 'NatGateways | length(@)' --output text"
     fail_message: >-
-      Delete unused NAT Gateways or request a limit increase:
-      aws service-quotas request-service-quota-increase
-        --region ${aws_region} --service-code vpc --quota-code L-FE5A380F --desired-value 10
+      Insufficient NAT Gateways. Run: make request-quotas (or: bash scripts/request-quotas.sh)
 
 # ─────────────────────────────────────────────────────────────
 # Post-Setup Message
@@ -326,4 +318,4 @@ modes:
   prod:
     description: "Set up and deploy the full workshop environment (hub + student clusters on AWS)"
     phases: [prerequisites, setup_steps, config, validation, deploy]
-    post_validation_command: "bash scripts/deploy-workshop.sh --account ${account} --hub-guid ${hub_guid} --students \"$(seq -w 1 ${num_students} | tr '\\n' ' ' | sed 's/ $//')\""
+    post_validation_command: "bash scripts/deploy-workshop.sh --account ${account} --hub-guid ${hub_guid} --students \"$(printf '%02d ' $(seq 1 ${num_students}) | sed 's/ $//')\""

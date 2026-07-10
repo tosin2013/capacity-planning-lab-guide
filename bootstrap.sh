@@ -398,6 +398,22 @@ configure() {
     count="$(manifest_len ".config.prompts")"
     if (( count == 0 )); then return 0; fi
 
+    # Pre-load existing config values so re-runs use them as defaults
+    local output_file
+    output_file="$(manifest_get ".config.output_file")"
+    if [[ -n "$output_file" && -f "$output_file" ]]; then
+        local line k v
+        while IFS= read -r line; do
+            [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+            k="${line%%:*}"
+            v="${line#*: }"
+            if [[ -z "${VARS[$k]+_}" ]]; then
+                VARS["$k"]="$v"
+            fi
+        done < "$output_file"
+        info "Loaded previous config from ${output_file} (press Enter to keep values)"
+    fi
+
     echo ""
     echo -e "${BOLD}--- Configuration ---${RESET}"
     echo ""
@@ -410,6 +426,11 @@ configure() {
         required="$(manifest_get ".config.prompts[$i].required")"
         choices="$(manifest_get ".config.prompts[$i].choices")"
 
+        # Use previously saved value as default if available
+        if [[ -n "${VARS[$key]+_}" && -n "${VARS[$key]}" ]]; then
+            default_val="${VARS[$key]}"
+        fi
+
         choices_str=""
         if [[ -n "$choices" && "$choices" != "null" ]]; then
             choices_str="$(echo "$choices" | python3 -c "
@@ -421,6 +442,9 @@ print(','.join(str(x) for x in arr)) if isinstance(arr, list) else print('')
 
         # Don't re-prompt if already set by a setup step prompt_var
         if [[ -z "${VARS[$key]+_}" ]]; then
+            prompt_for "$key" "$prompt_text" "${default_val:-}" "$choices_str" "${required:-false}"
+        else
+            # Pre-loaded from config — still prompt but with saved value as default
             prompt_for "$key" "$prompt_text" "${default_val:-}" "$choices_str" "${required:-false}"
         fi
     done
