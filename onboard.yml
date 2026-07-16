@@ -211,28 +211,28 @@ validation:
 
 quota_checks:
   - label: "EC2 vCPUs (On-Demand Standard)"
-    needed: 96
+    needed: "$((( 1 + ${num_students} ) * 24))"
     limit_command: "aws service-quotas get-service-quota --service-code ec2 --quota-code L-1216C47A --region ${aws_region} --query 'Quota.Value' --output text"
     usage_command: "aws ec2 describe-instances --region ${aws_region} --filters Name=instance-state-name,Values=running --query 'Reservations[].Instances[] | length(@)' --output text"
     fail_message: >-
       Insufficient vCPUs. Run: make request-quotas (or: bash scripts/request-quotas.sh)
 
   - label: "Elastic IPs"
-    needed: 16
+    needed: "$((( 1 + ${num_students} ) * 2 + 4))"
     limit_command: "aws service-quotas get-service-quota --service-code ec2 --quota-code L-0263D0A3 --region ${aws_region} --query 'Quota.Value' --output text"
     usage_command: "aws ec2 describe-addresses --region ${aws_region} --query 'Addresses | length(@)' --output text"
     fail_message: >-
       Insufficient Elastic IPs. Run: make request-quotas (or: bash scripts/request-quotas.sh)
 
   - label: "VPCs"
-    needed: 8
+    needed: "$((( 1 + ${num_students} ) * 2 + 2))"
     limit_command: "aws service-quotas get-service-quota --service-code vpc --quota-code L-F678F1CE --region ${aws_region} --query 'Quota.Value' --output text"
     usage_command: "aws ec2 describe-vpcs --region ${aws_region} --query 'Vpcs | length(@)' --output text"
     fail_message: >-
       Insufficient VPCs. Run: make request-quotas (or: bash scripts/request-quotas.sh)
 
   - label: "NAT Gateways"
-    needed: 8
+    needed: "$((( 1 + ${num_students} ) * 2 + 2))"
     limit_command: "aws service-quotas get-service-quota --service-code vpc --quota-code L-FE5A380F --region ${aws_region} --query 'Quota.Value' --output text"
     usage_command: "aws ec2 describe-nat-gateways --region ${aws_region} --filter Name=state,Values=available --query 'NatGateways | length(@)' --output text"
     fail_message: >-

@@ -698,6 +698,11 @@ run_quota_checks() {
         usage_cmd="$(manifest_get ".quota_checks[$i].usage_command")"
         fail_message="$(manifest_get ".quota_checks[$i].fail_message")"
 
+        # Substitute variables and evaluate arithmetic expressions in needed
+        needed="$(substitute_vars "$needed")"
+        needed=$(eval echo "$needed" 2>/dev/null || echo "$needed")
+        needed="${needed:-0}"
+
         limit_cmd="$(substitute_vars "$limit_cmd")"
         usage_cmd="$(substitute_vars "$usage_cmd")"
         fail_message="$(substitute_vars "$fail_message")"
