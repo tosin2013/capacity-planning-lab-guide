@@ -156,19 +156,32 @@ for SLOT in ${STUDENT_SLOTS}; do
 done
 
 if [[ "${NEEDS_CUSTOMISATION}" == true ]]; then
+  # Try to auto-substitute from deploy/config.yml (written by make setup)
+  CONFIG_FILE="${REPO_ROOT}/deploy/config.yml"
+  if [[ -f "${CONFIG_FILE}" ]]; then
+    OWNER_EMAIL=$(grep '^owner_email:' "${CONFIG_FILE}" | awk '{print $2}')
+    if [[ -n "${OWNER_EMAIL}" ]]; then
+      log "Auto-applying owner_email (${OWNER_EMAIL}) from deploy/config.yml"
+      for VAR_FILE in "${VARS_DIR}/hub-aws.yml" "${VARS_DIR}"/student-*.yml; do
+        [[ -f "${VAR_FILE}" ]] || continue
+        sed -i "s/<YOUR_EMAIL>/${OWNER_EMAIL}/" "${VAR_FILE}"
+      done
+      log "Var files customized automatically — continuing deployment."
+      NEEDS_CUSTOMISATION=false
+    fi
+  fi
+fi
+
+if [[ "${NEEDS_CUSTOMISATION}" == true ]]; then
   log ""
   log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   log "  FIRST-RUN SETUP: var file templates have been copied to:"
   log "    ${VARS_DIR}/"
   log ""
-  log "  Before re-running this script you MUST:"
+  log "  Run 'make setup' to configure automatically, or manually:"
   log "    1. Edit each file and replace <YOUR_EMAIL> with your email."
   log "    2. After provisioning the hub, update the hub_rhacm_url in each"
   log "       student-NN.yml (paste from hub provision-user-data.yaml)."
-  log "    3. Create your secrets file if it does not already exist:"
-  log "       cp ${TEMPLATE_DIR}/secrets.yml.example \\"
-  log "          ${HOME}/agnosticd-v2-secrets/secrets-${ACCOUNT}.yml"
-  log "       Then fill in your AWS credentials and base_domain."
   log ""
   log "  Once all files are customised, re-run:"
   log "    bash scripts/deploy-workshop.sh --account ${ACCOUNT}"

@@ -619,6 +619,65 @@ populate_secrets() {
     fi
 }
 
+# ─── Phase: Prepare Var Files ─────────────────────────────────────────────────
+
+prepare_var_files() {
+    local agd_root="${VARS[agnosticd_root]:-$HOME/agnosticd-v2}"
+    local vars_dir="${agd_root%/*}/agnosticd-v2-vars"
+    local email="${VARS[owner_email]:-}"
+    local num="${VARS[num_students]:-3}"
+
+    echo ""
+    echo -e "${BOLD}--- Var Files ---${RESET}"
+    echo ""
+
+    if [[ -z "$email" ]]; then
+        fail "No owner_email set — cannot customize var files."
+        return 1
+    fi
+
+    # Hub var file -- replace <YOUR_EMAIL> if still placeholder
+    local hub_var="${vars_dir}/hub-aws.yml"
+    if [[ -f "$hub_var" ]] && grep -q '<YOUR_EMAIL>' "$hub_var"; then
+        if [[ "$DRY_RUN" == "true" ]]; then
+            dry_msg "Would replace <YOUR_EMAIL> with ${email} in ${hub_var}"
+        else
+            sed -i "s/<YOUR_EMAIL>/${email}/" "$hub_var"
+            ok "Set owner email in hub-aws.yml"
+        fi
+    elif [[ -f "$hub_var" ]]; then
+        skip "hub-aws.yml already customized"
+    fi
+
+    # Student var files -- bootstrap from template if missing
+    local i slot student_var
+    for (( i=1; i<=num; i++ )); do
+        slot=$(printf '%02d' "$i")
+        student_var="${vars_dir}/student-${slot}.yml"
+        if [[ ! -f "$student_var" ]]; then
+            if [[ "$DRY_RUN" == "true" ]]; then
+                dry_msg "Would create ${student_var} from template"
+            else
+                mkdir -p "$vars_dir"
+                cp deploy/vars/student.yml "$student_var"
+                sed -i "s/^guid: student-01/guid: student-${slot}/" "$student_var"
+                sed -i "s/hub_user_slot: \"user-1\"/hub_user_slot: \"user-${i}\"/" "$student_var"
+                sed -i "s/<YOUR_EMAIL>/${email}/" "$student_var"
+                ok "Created student-${slot}.yml"
+            fi
+        elif grep -q '<YOUR_EMAIL>' "$student_var"; then
+            if [[ "$DRY_RUN" == "true" ]]; then
+                dry_msg "Would replace <YOUR_EMAIL> in ${student_var}"
+            else
+                sed -i "s/<YOUR_EMAIL>/${email}/" "$student_var"
+                ok "Set owner email in student-${slot}.yml"
+            fi
+        else
+            skip "student-${slot}.yml already customized"
+        fi
+    done
+}
+
 # ─── Phase: Validation + Readiness Gate ──────────────────────────────────────
 
 validate() {
@@ -803,6 +862,9 @@ main() {
 
     # --- Secrets ---
     populate_secrets
+
+    # --- Var Files ---
+    prepare_var_files
 
     # --- Validation + Readiness Gate ---
     local validation_passed=true
