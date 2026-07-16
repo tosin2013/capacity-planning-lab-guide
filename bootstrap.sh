@@ -383,10 +383,41 @@ run_setup_steps() {
             skip "${name} (already done)"
         else
             run_msg "${name}"
-            if ! eval "$action"; then
+            if ! ( eval "$action" ); then
                 fail "${name}"
                 return 1
             fi
+        fi
+    done
+}
+
+# ─── Load Saved Config (for --check-only) ────────────────────────────────────
+
+# Loads previously saved config values and manifest defaults into VARS so that
+# validation commands can resolve ${variable} references without prompting.
+load_saved_config() {
+    local output_file
+    output_file="$(manifest_get ".config.output_file")"
+    if [[ -n "$output_file" && -f "$output_file" ]]; then
+        local line k v
+        while IFS= read -r line; do
+            [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+            k="${line%%:*}"
+            v="${line#*: }"
+            if [[ -z "${VARS[$k]+_}" ]]; then
+                VARS["$k"]="$v"
+            fi
+        done < "$output_file"
+        info "Loaded config from ${output_file}"
+    fi
+
+    local count i key default_val
+    count="$(manifest_len ".config.prompts")"
+    for (( i=0; i<count; i++ )); do
+        key="$(manifest_get ".config.prompts[$i].key")"
+        default_val="$(manifest_get ".config.prompts[$i].default")"
+        if [[ -z "${VARS[$key]+_}" && -n "$default_val" ]]; then
+            VARS["$key"]="${default_val/#\~/$HOME}"
         fi
     done
 }
@@ -623,6 +654,7 @@ main() {
     info "Manifest: ${MANIFEST}"
 
     if [[ "$CHECK_ONLY" == "true" ]]; then
+        load_saved_config
         local rc=0
         validate || rc=1
         run_quota_checks || rc=1
