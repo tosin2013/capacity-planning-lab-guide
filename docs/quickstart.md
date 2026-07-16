@@ -4,17 +4,6 @@ Get up and running in 5 minutes. For the full operator runbook, see [Hub-Student
 
 ---
 
-## Prerequisites Check
-
-Verify your environment has everything needed:
-
-```bash
-make check
-# or: ./bootstrap.sh --check-only
-```
-
----
-
 ## For End Users (Deploy a Workshop)
 
 1. **Clone the repo and run onboarding:**
@@ -25,15 +14,14 @@ make check
    make setup
    ```
 
-   This installs prerequisites, prompts for your AWS account info, and validates readiness.
+   This installs prerequisites, prompts for your AWS account info and credentials,
+   populates the secrets file, and validates readiness.
 
-2. **Fill in your secrets file** (AWS credentials + pull secret):
+2. **Re-validate anytime** (after fixing issues or changing credentials):
 
    ```bash
-   vi ~/agnosticd-v2-secrets/secrets-<YOUR_ACCOUNT>.yml
+   make check
    ```
-
-   See `deploy/vars/secrets.yml.example` for the template.
 
 3. **Preview what would deploy** (no clusters created):
 

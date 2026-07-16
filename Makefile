@@ -19,6 +19,13 @@ setup-dev: ## Run maintainer/contributor setup (dev mode)
 	./bootstrap.sh --mode dev
 
 check: ## Run validation checks only (no installs, no deploy)
+	@if [ ! -f deploy/config.yml ]; then \
+		echo ""; \
+		echo "  No configuration found (deploy/config.yml missing)."; \
+		echo "  Run 'make setup' first to complete the onboarding wizard."; \
+		echo ""; \
+		exit 1; \
+	fi
 	./bootstrap.sh --check-only
 
 setup-dry: ## Dry-run full onboarding (show what would happen)
