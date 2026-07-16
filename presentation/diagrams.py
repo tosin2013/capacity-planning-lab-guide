@@ -1,140 +1,231 @@
 """
-diagrams.py — Capacity Planning Workshop diagrams.
+diagrams.py — capacity-planning workshop diagrams.
 
-Each scene builds a Scene and calls .write().
+Each scene is a function that builds a Scene and calls .write().
 Register every scene in the SCENES list at the bottom.
 """
 from dgen import Scene, PALETTE
 
 
-def rhacm_observability_architecture():
-    s = Scene("r01-rhacm-observability-architecture", width=1300, height=600,
-              title="RHACM Multi-Cluster Observability",
-              subtitle="Prometheus per cluster, Thanos on the hub, Grafana for fleet-wide visibility")
+def hub_student_architecture():
+    s = Scene("r01-hub-student-architecture", width=1300, height=640,
+              title="Hub-Student Workshop Architecture",
+              subtitle="One hub cluster manages N student clusters via RHACM Observability.")
 
-    # Hub cluster panel
-    s.panel(580, 100, 660, 300)
-    s.label(910, 130, "Hub Cluster", size=13, weight="bold", color=PALETTE["svc"], anchor="middle")
+    # Hub cluster (top center)
+    s.box(370, 100, 560, 150, "Hub Cluster", [
+        "RHACM 2.16 + Observability",
+        "Thanos (long-term metric storage)",
+        "Grafana (capacity dashboards)",
+        "Showroom (lab guide)",
+    ], kind="platform")
 
-    # Managed clusters (left side)
-    for i, name in enumerate(["Cluster A", "Cluster B", "Cluster C"]):
-        cy = 140 + i * 140
-        s.box(60, cy, 220, 90, name, ["Prometheus", "metrics-collector"], kind="platform")
-        s.arrow(280, cy + 45, 610, 250, kind="platform", dashed=False,
-                label="metrics" if i == 0 else None)
+    # Student clusters (bottom row)
+    s.box(60, 430, 310, 120, "Student Cluster 1", [
+        "3-node compact OCP 4.21",
+        "Prometheus + metrics-collector",
+        "Sample workloads (ArgoCD)",
+    ], kind="svc")
 
-    # Thanos
-    s.box(610, 200, 200, 100, "Thanos", ["long-term storage", "cross-cluster query"], kind="data")
+    s.box(495, 430, 310, 120, "Student Cluster 2", [
+        "3-node compact OCP 4.21",
+        "Prometheus + metrics-collector",
+        "Sample workloads (ArgoCD)",
+    ], kind="svc")
 
-    # Alertmanager
-    s.box(610, 330, 200, 60, "Alertmanager", kind="data")
-    s.arrow(710, 300, 710, 330, kind="data")
+    s.box(930, 430, 310, 120, "Student Cluster N", [
+        "3-node compact OCP 4.21",
+        "Prometheus + metrics-collector",
+        "Sample workloads (ArgoCD)",
+    ], kind="svc")
 
-    # Grafana
-    s.box(900, 200, 200, 100, "Grafana", ["capacity dashboards", "fleet-wide view"], kind="svc")
-    s.arrow(810, 250, 900, 250, kind="svc")
+    # Arrows from students up to hub (metrics flow)
+    s.arrow(215, 430, 530, 250, kind="svc", label="metrics")
+    s.arrow(650, 430, 650, 250, kind="svc", label="metrics")
+    s.arrow(1085, 430, 770, 250, kind="svc", label="metrics")
 
-    # Callout panel at bottom
-    s.panel(60, 490, 1180, 70)
-    s.label(650, 525, "A curated metric allowlist reduces forwarded volume by 95%,",
-            size=14, weight="bold", color=PALETTE["govern"], anchor="middle")
-    s.label(650, 548, "cutting terabytes of Thanos storage per month across the fleet.",
-            size=12, color=PALETTE["muted"], anchor="middle")
+    # RHACM import label
+    s.label(650, 350, "RHACM Import + Observability Pipeline", size=13,
+            anchor="middle", color=PALETTE["muted"])
+
+    # Ellipsis between cluster 2 and N
+    s.label(870, 490, "...", size=28, weight="bold", anchor="middle",
+            color=PALETTE["muted"])
 
     s.write()
 
 
-def hub_student_topology():
-    s = Scene("r02-hub-student-topology", width=1300, height=650,
-              title="Workshop Lab Topology",
-              subtitle="Hub-student architecture: each student gets a dedicated OpenShift cluster")
+def observability_data_flow():
+    s = Scene("r02-observability-data-flow", width=1300, height=580,
+              title="RHACM Observability Data Flow",
+              subtitle="Metrics pipeline from managed clusters to centralized dashboards.")
 
-    # Hub cluster
-    s.panel(300, 90, 700, 130)
-    s.label(650, 115, "Hub Cluster", size=14, weight="bold", color=PALETTE["svc"], anchor="middle")
-    s.box(320, 140, 180, 60, "RHACM", ["cluster management"], kind="svc")
-    s.box(560, 140, 180, 60, "Grafana", ["fleet dashboards"], kind="svc")
-    s.box(800, 140, 180, 60, "Showroom", ["lab guide UI"], kind="svc")
+    # Managed-cluster panel (left)
+    s.panel(40, 110, 370, 360)
+    s.label(225, 138, "Managed Cluster", size=14, weight="bold",
+            anchor="middle", color=PALETTE["svc"])
 
-    # Student clusters
-    s.panel(60, 340, 1180, 180)
-    s.label(650, 368, "Student Clusters (one per participant)", size=13, weight="bold",
-            color=PALETTE["platform"], anchor="middle")
+    s.box(80, 165, 290, 80, "Prometheus", [
+        "scrapes pod / node metrics",
+        "per-cluster retention",
+    ], kind="svc")
 
-    for i in range(3):
-        cx = 120 + i * 400
-        name = f"Student {i+1}"
-        s.box(cx, 390, 280, 100, name,
-              ["3-node compact OCP", "sample apps + Prometheus", "ArgoCD workloads"],
-              kind="platform")
+    s.box(80, 290, 290, 80, "metrics-collector", [
+        "filters via custom allowlist",
+        "forwards selected metrics",
+    ], kind="svc")
 
-    # RHACM import arrows (dashed)
-    for i in range(3):
-        tx = 260 + i * 400
-        s.arrow(410, 200, tx, 390, kind="govern", dashed=True,
-                label="RHACM import" if i == 0 else None)
+    s.arrow(225, 245, 225, 290, kind="neutral", label="all metrics")
 
-    # SSH arrows from Showroom
-    for i in range(3):
-        tx = 260 + i * 400
-        s.arrow(890, 200, tx, 390, kind="neutral", dashed=True,
-                label="SSH" if i == 2 else None)
+    # Hub-cluster panel (right)
+    s.panel(490, 110, 770, 360)
+    s.label(875, 138, "Hub Cluster", size=14, weight="bold",
+            anchor="middle", color=PALETTE["platform"])
 
-    # Callout
-    s.label(650, 560, "Each student cluster: m7a.2xlarge (8 vCPU, 32 GB RAM) x 3 nodes",
-            size=12, color=PALETTE["muted"], anchor="middle")
+    s.box(530, 175, 260, 90, "Thanos", [
+        "Receive + Query + Store",
+        "cross-cluster aggregation",
+        "long-term retention",
+    ], kind="platform")
+
+    s.box(880, 165, 230, 80, "Grafana", [
+        "capacity dashboards",
+        "showback / chargeback",
+    ], kind="platform")
+
+    s.box(880, 290, 230, 80, "Alertmanager", [
+        "threshold-based alerts",
+        "capacity warnings",
+    ], kind="danger")
+
+    s.box(530, 385, 260, 65, "S3 Object Storage", [
+        "compacted metric blocks",
+    ], kind="data")
+
+    # Data flow arrows
+    s.arrow(370, 330, 530, 220, kind="svc", label="HTTPS push")
+    s.arrow(790, 210, 880, 200, kind="neutral", label="query")
+    s.arrow(790, 240, 880, 320, kind="neutral", label="alerts")
+    s.arrow(660, 265, 660, 385, kind="data", label="compact")
 
     s.write()
 
 
 def workshop_journey():
-    s = Scene("r03-workshop-journey", width=1300, height=500,
-              title="Workshop Journey",
-              subtitle="Progressive skill building across 9 modules")
+    s = Scene("r03-workshop-journey", width=1300, height=540,
+              title="Workshop Journey: Reactive to Strategic",
+              subtitle="Nine modules build capacity planning maturity across a full day.")
 
-    groups = [
-        ("Foundations", "Modules 1-2", "svc",      60),
-        ("Developer",   "Modules 3-4", "rest",     320),
-        ("Infrastructure", "Modules 5-6", "platform", 580),
-        ("Integration", "Modules 7-8", "govern",   840),
-        ("AI Ops",      "Module 9",    "data",     1080),
+    bw, bh = 200, 80
+    gap = 25
+    y_top = 130
+
+    # Top row: Modules 1-5
+    modules_top = [
+        ("M1", "Planning Horizons", "svc"),
+        ("M2", "Forecasting Math", "svc"),
+        ("M3", "Developer Track", "svc"),
+        ("M4", "Right-Sizing", "platform"),
+        ("M5", "Fleet Architecture", "platform"),
     ]
 
-    for name, sub, kind, x in groups:
-        s.box(x, 160, 200, 120, name, [sub], kind=kind)
+    x_start = 50
+    for i, (code, label, kind) in enumerate(modules_top):
+        x = x_start + i * (bw + gap)
+        s.box(x, y_top, bw, bh, code, [label], kind=kind)
 
-    # Arrows between groups
-    for i in range(len(groups) - 1):
-        x1 = groups[i][3] + 200
-        x2 = groups[i+1][3]
-        dashed = (i == 3)
-        s.arrow(x1, 220, x2, 220, kind="neutral", dashed=dashed)
+    # Arrows between top row
+    for i in range(4):
+        x1 = x_start + i * (bw + gap) + bw
+        x2 = x_start + (i + 1) * (bw + gap)
+        s.arrow(x1, y_top + bh // 2, x2, y_top + bh // 2, kind="neutral")
 
-    # Detail labels below each group
-    details = [
-        (160,  ["Baseline audit", "Pod Velocity model"]),
-        (420,  ["QoS classes / OOMKill", "Right-sizing activity"]),
-        (680,  ["maxPods / etcd limits", "RHACM observability"]),
-        (940,  ["Black Friday chaos", "12-month roadmap"]),
-        (1180, ["OpenShift Lightspeed", "(optional)"]),
+    # Bottom row: Modules 6-9
+    y_bot = 310
+    modules_bot = [
+        ("M6", "Fleet Observability", "platform"),
+        ("M7", "Black Friday", "danger"),
+        ("M8", "Strategic Roadmap", "govern"),
+        ("M9", "AI-Assisted Ops", "govern"),
     ]
 
-    for cx, lines in details:
-        for j, line in enumerate(lines):
-            s.label(cx, 320 + j * 22, line, size=12, color=PALETTE["muted"], anchor="middle")
+    x_bot_start = 175
+    for i, (code, label, kind) in enumerate(modules_bot):
+        x = x_bot_start + i * (bw + gap)
+        s.box(x, y_bot, bw, bh, code, [label], kind=kind)
 
-    # Bottom callout
-    s.panel(200, 400, 900, 60)
-    s.label(650, 435, "8 hours  |  40+ code blocks  |  6 scripts  |  14 YAML manifests  |  live OpenShift clusters",
-            size=13, weight="bold", color=PALETTE["neutral"], anchor="middle")
+    # Connector from end of top row down to start of bottom row
+    s.arrow(x_start + 4 * (bw + gap) + bw, y_top + bh // 2,
+            x_bot_start, y_bot + bh // 2, kind="neutral", dashed=True)
+
+    # Arrows between bottom row
+    for i in range(3):
+        x1 = x_bot_start + i * (bw + gap) + bw
+        x2 = x_bot_start + (i + 1) * (bw + gap)
+        s.arrow(x1, y_bot + bh // 2, x2, y_bot + bh // 2, kind="neutral")
+
+    # Maturity progression at bottom
+    s.chip(50, 460, "REACTIVE", kind="danger")
+    s.arrow(170, 471, 1090, 471, kind="neutral")
+    s.chip(1090, 460, "STRATEGIC", kind="govern")
+
+    s.label(630, 500, "8 hours  |  full-day hands-on workshop", size=12,
+            anchor="middle", color=PALETTE["muted"])
+
+    s.write()
+
+
+def maturity_model():
+    s = Scene("r04-maturity-model", width=1200, height=580,
+              title="Capacity Planning Maturity Model",
+              subtitle="Where are you today? Where does this workshop take you?")
+
+    levels = [
+        ("Level 1", "Reactive", [
+            "No baselines or forecasts",
+            "Ad-hoc firefighting",
+            "Surprise outages",
+        ], "danger"),
+        ("Level 2", "Tactical", [
+            "Basic monitoring in place",
+            "Manual capacity forecasts",
+            "90-day audit cycle",
+        ], "svc"),
+        ("Level 3", "Operational", [
+            "Pod Velocity forecasting",
+            "Multi-cluster dashboards",
+            "Quarterly capacity roadmaps",
+        ], "platform"),
+        ("Level 4", "Strategic", [
+            "AI-assisted operations",
+            "FinOps integration",
+            "Multi-year commitment planning",
+        ], "govern"),
+    ]
+
+    bw = 230
+    gap = 35
+    x_start = 55
+
+    for i, (level, name, bullets, kind) in enumerate(levels):
+        x = x_start + i * (bw + gap)
+        y = 340 - i * 55
+        h = 105 + i * 10
+        s.box(x, y, bw, h, f"{level}: {name}", bullets, kind=kind)
+
+    # Workshop coverage callout
+    s.panel(55, 475, 795, 55)
+    s.label(452, 508, "This workshop: Level 1 → Level 3", size=14,
+            weight="bold", anchor="middle", color=PALETTE["platform"])
 
     s.write()
 
 
 SCENES = [
-    rhacm_observability_architecture,
-    hub_student_topology,
+    hub_student_architecture,
+    observability_data_flow,
     workshop_journey,
+    maturity_model,
 ]
 
 if __name__ == "__main__":

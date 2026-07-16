@@ -32,11 +32,9 @@ def main():
     print(f"\nRendering {len(svgs)} new SVGs to PNG via soffice...")
     if svgs:
         subprocess.check_call([
-            "python3",
-            "/mnt/skills/public/pptx/scripts/office/soffice.py",
-            "--headless", "--convert-to", "png",
-            *svgs,
+            "soffice", "--headless", "--convert-to", "png",
             "--outdir", PNG,
+            *svgs,
         ], stdout=subprocess.DEVNULL)
 
     # 3) Report

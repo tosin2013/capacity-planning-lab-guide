@@ -175,7 +175,7 @@ spec:
 == Technology Stack
 
 - **OpenShift Container Platform**: 4.14 - 4.21+
-- **Red Hat Advanced Cluster Management (RHACM)**: 2.14+
+- **Red Hat Advanced Cluster Management (RHACM)**: 2.16+
 - **Monitoring**: Prometheus, Thanos, Alertmanager, Grafana
 - **Documentation**: Antora 3.1, AsciiDoc
 - **Lab Environment**: Showroom (RHDP)
