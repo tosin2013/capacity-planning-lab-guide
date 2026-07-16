@@ -20,6 +20,8 @@ test-output/
 # Ignore logs and temporary files
 *.log
 *.tmp
+__pycache__/
+*.pyc
 
 # Ignore environment-specific files
 .env
