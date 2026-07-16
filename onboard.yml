@@ -108,10 +108,6 @@ setup_steps:
     check: "test -f ${agnosticd_root}/../agnosticd-v2-vars/hub-aws.yml"
     action: "cp deploy/vars/hub-aws.yml ${agnosticd_root}/../agnosticd-v2-vars/hub-aws.yml"
 
-  - name: "Scaffold secrets file"
-    check: "test -f ${agnosticd_root}/../agnosticd-v2-secrets/secrets-${account}.yml"
-    action: "cp deploy/vars/secrets.yml.example ${agnosticd_root}/../agnosticd-v2-secrets/secrets-${account}.yml"
-
 # ─────────────────────────────────────────────────────────────
 # Configuration Prompts
 # ─────────────────────────────────────────────────────────────
@@ -250,14 +246,8 @@ post_setup:
   message: |
     Setup complete! Next steps:
 
-    1. Fill in your AWS credentials and pull secret in:
+    1. Verify your secrets file has correct values:
        ${agnosticd_root}/../agnosticd-v2-secrets/secrets-${account}.yml
-
-       Required fields:
-         aws_access_key_id: "AKIA..."
-         aws_secret_access_key: "..."
-         base_domain: "${base_domain}"
-         ocp4_pull_secret: '<paste full JSON>'
 
     2. Edit var files and replace <YOUR_EMAIL> with your email:
        ${agnosticd_root}/../agnosticd-v2-vars/hub-aws.yml

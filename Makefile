@@ -6,7 +6,7 @@ HUB_GUID    ?= $(shell grep '^hub_guid:' deploy/config.yml 2>/dev/null | awk '{p
 NUM_STUDENTS ?= $(shell grep '^num_students:' deploy/config.yml 2>/dev/null | awk '{print $$2}')
 STUDENTS    ?= $(shell printf '%02d ' $$(seq 1 $(or $(NUM_STUDENTS),3)) | sed 's/ $$//')
 
-.PHONY: help setup setup-dev check deploy dry-run build serve stop clean student-info validate
+.PHONY: help setup setup-dev check setup-dry deploy dry-run build serve stop clean student-info validate
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -20,6 +20,9 @@ setup-dev: ## Run maintainer/contributor setup (dev mode)
 
 check: ## Run validation checks only (no installs, no deploy)
 	./bootstrap.sh --check-only
+
+setup-dry: ## Dry-run full onboarding (show what would happen)
+	./bootstrap.sh --dry-run
 
 deploy: ## Deploy hub + student clusters (reads deploy/config.yml)
 	bash scripts/deploy-workshop.sh --account $(ACCOUNT) --hub-guid $(HUB_GUID) --students "$(STUDENTS)"

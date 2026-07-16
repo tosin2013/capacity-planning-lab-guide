@@ -9,6 +9,7 @@
 #   ./bootstrap.sh --mode prod        # end-user setup and deploy
 #   ./bootstrap.sh --non-interactive  # use all defaults, no prompts
 #   ./bootstrap.sh --check-only       # run validation checks only
+#   ./bootstrap.sh --dry-run          # show what would happen without executing
 #   ./bootstrap.sh --help             # show usage
 
 set -euo pipefail
@@ -30,12 +31,14 @@ pass()    { echo -e "  ${GREEN}[PASS]${RESET}    $*"; }
 warn_msg(){ echo -e "  ${YELLOW}[WARN]${RESET}    $*"; }
 skip()    { echo -e "  ${GREEN}[SKIP]${RESET}    $*"; }
 run_msg() { echo -e "  ${BLUE}[RUN]${RESET}     $*"; }
+dry_msg() { echo -e "  ${YELLOW}[DRY-RUN]${RESET} $*"; }
 
 # ─── Argument Parsing ────────────────────────────────────────────────────────
 
 MODE="prod"
 NON_INTERACTIVE=false
 CHECK_ONLY=false
+DRY_RUN=false
 
 usage() {
     cat <<'EOF'
@@ -47,6 +50,7 @@ Options:
   --mode dev|prod    dev = maintainer setup, prod = end-user deploy (default: prod)
   --non-interactive  Accept all defaults without prompting
   --check-only       Run validation checks only
+  --dry-run          Show what would happen without executing destructive actions
   --help             Show this help
 
 EOF
@@ -58,6 +62,7 @@ while [[ $# -gt 0 ]]; do
         --mode)       MODE="${2:-prod}"; shift 2 ;;
         --non-interactive) NON_INTERACTIVE=true; shift ;;
         --check-only) CHECK_ONLY=true; shift ;;
+        --dry-run)    DRY_RUN=true; shift ;;
         --help|-h)    usage ;;
         *)            echo "Unknown option: $1"; usage ;;
     esac
@@ -341,12 +346,16 @@ print(m.group(1) if m else '0.0')
             return 1
         fi
 
-        echo "            → Running: ${install_cmd}"
-        if ! eval "$install_cmd"; then
-            fail "Failed to install ${name}"
-            return 1
+        if [[ "$DRY_RUN" == "true" ]]; then
+            dry_msg "Would install ${name}: ${install_cmd}"
+        else
+            echo "            → Running: ${install_cmd}"
+            if ! eval "$install_cmd"; then
+                fail "Failed to install ${name}"
+                return 1
+            fi
+            ok "${name} installed"
         fi
-        ok "${name} installed"
     done
 }
 
@@ -381,6 +390,8 @@ run_setup_steps() {
 
         if eval "$check" &>/dev/null; then
             skip "${name} (already done)"
+        elif [[ "$DRY_RUN" == "true" ]]; then
+            dry_msg "Would run: ${action}"
         else
             run_msg "${name}"
             if ! ( eval "$action" ); then
@@ -502,6 +513,109 @@ print(','.join(str(x) for x in arr)) if isinstance(arr, list) else print('')
                 info "Added ${output_file} to .gitignore"
             fi
         fi
+    fi
+}
+
+# ─── Phase: Populate Secrets ──────────────────────────────────────────────────
+
+populate_secrets() {
+    local account="${VARS[account]:-}"
+    local agd_root="${VARS[agnosticd_root]:-$HOME/agnosticd-v2}"
+    local secrets_dir="${agd_root%/*}/agnosticd-v2-secrets"
+    local secrets_file="${secrets_dir}/secrets-${account}.yml"
+
+    echo ""
+    echo -e "${BOLD}--- Secrets ---${RESET}"
+    echo ""
+
+    if [[ -z "$account" ]]; then
+        fail "No account name set — cannot scaffold secrets file."
+        return 1
+    fi
+
+    # Scaffold from template if missing
+    if [[ ! -f "$secrets_file" ]]; then
+        if [[ "$DRY_RUN" == "true" ]]; then
+            dry_msg "Would create ${secrets_file} from template"
+        else
+            mkdir -p "$secrets_dir"
+            cp deploy/vars/secrets.yml.example "$secrets_file"
+            info "Created ${secrets_file} from template"
+        fi
+    else
+        info "Secrets file exists: ${secrets_file}"
+    fi
+
+    # Read existing non-placeholder values as defaults
+    local cur_key="" cur_secret="" cur_domain="" cur_pull=""
+    if [[ -f "$secrets_file" ]]; then
+        cur_key=$(yq -r '.aws_access_key_id // ""' "$secrets_file" 2>/dev/null || true)
+        cur_secret=$(yq -r '.aws_secret_access_key // ""' "$secrets_file" 2>/dev/null || true)
+        cur_domain=$(yq -r '.base_domain // ""' "$secrets_file" 2>/dev/null || true)
+        cur_pull=$(yq -r '.ocp4_pull_secret // ""' "$secrets_file" 2>/dev/null || true)
+    fi
+
+    # Strip placeholder markers
+    [[ "$cur_key" == *YOUR* || "$cur_key" == *"<"* ]] && cur_key=""
+    [[ "$cur_secret" == *YOUR* || "$cur_secret" == *"<"* ]] && cur_secret=""
+    [[ "$cur_domain" == *YOUR* || "$cur_domain" == *"<"* ]] && cur_domain=""
+    [[ "$cur_pull" == *YOUR* || "$cur_pull" == *"<"* ]] && cur_pull=""
+
+    # Auto-detect AWS credentials from ~/.aws/credentials if not already set
+    if [[ -z "$cur_key" && -f "$HOME/.aws/credentials" ]]; then
+        cur_key=$(awk -F= '/^aws_access_key_id/{gsub(/[ \t]/,"",$2); print $2; exit}' "$HOME/.aws/credentials")
+        cur_secret=$(awk -F= '/^aws_secret_access_key/{gsub(/[ \t]/,"",$2); print $2; exit}' "$HOME/.aws/credentials")
+        [[ -n "$cur_key" ]] && info "Auto-detected AWS credentials from ~/.aws/credentials"
+    fi
+
+    # Fall back to config values for base_domain
+    [[ -z "$cur_domain" ]] && cur_domain="${VARS[base_domain]:-}"
+
+    # Read pull secret from file if no value in secrets file yet
+    local ps_path="${VARS[pull_secret_path]:-}"
+    ps_path="${ps_path/#\~/$HOME}"
+    if [[ -z "$cur_pull" && -n "$ps_path" && -f "$ps_path" ]]; then
+        cur_pull="$(cat "$ps_path")"
+        [[ -n "$cur_pull" ]] && info "Auto-loaded pull secret from ${ps_path}"
+    fi
+
+    # Prompt for each secret value
+    prompt_for _aws_key    "AWS Access Key ID"     "$cur_key"    "" true
+    prompt_for _aws_secret "AWS Secret Access Key" "$cur_secret" "" true
+    prompt_for _base_domain "Base domain"          "$cur_domain" "" true
+
+    # Pull secret is long; show a truncated default for readability
+    local pull_display=""
+    if [[ -n "$cur_pull" ]]; then
+        pull_display="(${#cur_pull} chars loaded — press Enter to keep)"
+    fi
+    if [[ -n "$cur_pull" && "$NON_INTERACTIVE" != "true" ]]; then
+        local pull_input
+        read -rp "  OpenShift pull secret ${pull_display}: " pull_input
+        VARS[_pull_secret]="${pull_input:-$cur_pull}"
+    else
+        VARS[_pull_secret]="${cur_pull}"
+    fi
+
+    # Write values into secrets file
+    if [[ "$DRY_RUN" == "true" ]]; then
+        dry_msg "Would write aws_access_key_id to ${secrets_file}"
+        dry_msg "Would write aws_secret_access_key to ${secrets_file}"
+        dry_msg "Would write base_domain=${VARS[_base_domain]} to ${secrets_file}"
+        dry_msg "Would write ocp4_pull_secret (${#VARS[_pull_secret]} chars) to ${secrets_file}"
+    else
+        yq -i ".aws_access_key_id = \"${VARS[_aws_key]}\"" "$secrets_file"
+        yq -i ".aws_secret_access_key = \"${VARS[_aws_secret]}\"" "$secrets_file"
+        yq -i ".base_domain = \"${VARS[_base_domain]}\"" "$secrets_file"
+
+        # Pull secret may contain special chars; use a temp file for safe injection
+        local pull_tmp
+        pull_tmp=$(mktemp)
+        printf '%s' "${VARS[_pull_secret]}" > "$pull_tmp"
+        yq -i ".ocp4_pull_secret = load_str(\"${pull_tmp}\")" "$secrets_file"
+        rm -f "$pull_tmp"
+
+        ok "Secrets written to ${secrets_file}"
     fi
 }
 
@@ -644,7 +758,9 @@ main() {
     project_desc="$(manifest_get ".description")"
 
     echo ""
-    echo -e "${BOLD}=== ${project_name} Setup (${MODE} mode) ===${RESET}"
+    local mode_label="${MODE} mode"
+    [[ "$DRY_RUN" == "true" ]] && mode_label+=" / dry-run"
+    echo -e "${BOLD}=== ${project_name} Setup (${mode_label}) ===${RESET}"
     [[ -n "$project_desc" ]] && echo "$project_desc"
     echo ""
 
@@ -680,6 +796,9 @@ main() {
     # --- Configuration ---
     configure
 
+    # --- Secrets ---
+    populate_secrets
+
     # --- Validation + Readiness Gate ---
     local validation_passed=true
     if ! validate; then
@@ -704,8 +823,12 @@ main() {
             echo ""
             echo -e "${BOLD}--- Deploying ---${RESET}"
             echo ""
-            info "Running: ${deploy_cmd}"
-            eval "$deploy_cmd"
+            if [[ "$DRY_RUN" == "true" ]]; then
+                dry_msg "Would run: ${deploy_cmd}"
+            else
+                info "Running: ${deploy_cmd}"
+                eval "$deploy_cmd"
+            fi
         fi
     elif [[ "$MODE" == "prod" && ("$validation_passed" == "false" || "$quota_passed" == "false") ]]; then
         echo ""
