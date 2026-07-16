@@ -189,12 +189,23 @@ if [[ "${NEEDS_CUSTOMISATION}" == true ]]; then
   exit 0
 fi
 
-# All var files present — warn if raw placeholders remain
+# All var files present — auto-fix placeholders from config if possible
+CONFIG_FILE="${REPO_ROOT}/deploy/config.yml"
+OWNER_EMAIL=""
+if [[ -f "${CONFIG_FILE}" ]]; then
+  OWNER_EMAIL=$(grep '^owner_email:' "${CONFIG_FILE}" | awk '{print $2}')
+fi
+
 for VAR_FILE in "${VARS_DIR}/hub-aws.yml" "${VARS_DIR}"/student-*.yml; do
   [[ -f "${VAR_FILE}" ]] || continue
-  if grep -q "<YOUR_EMAIL>\|<HUB_GUID>\|<SANDBOX>" "${VAR_FILE}" 2>/dev/null; then
-    log "WARNING: ${VAR_FILE} still contains placeholder values."
-    log "         Edit it before provisioning or your clusters will be misconfigured."
+  if grep -q "<YOUR_EMAIL>" "${VAR_FILE}" 2>/dev/null; then
+    if [[ -n "${OWNER_EMAIL}" ]]; then
+      sed -i "s/<YOUR_EMAIL>/${OWNER_EMAIL}/" "${VAR_FILE}"
+      log "Auto-fixed <YOUR_EMAIL> in ${VAR_FILE}"
+    else
+      log "WARNING: ${VAR_FILE} still contains placeholder values."
+      log "         Run 'make setup' or edit it manually before provisioning."
+    fi
   fi
 done
 log "Vars files: all present — OK"

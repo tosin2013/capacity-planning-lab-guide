@@ -616,6 +616,19 @@ populate_secrets() {
         rm -f "$pull_tmp"
 
         ok "Secrets written to ${secrets_file}"
+
+        # Also fix the generic secrets.yml if it has placeholder pull secret
+        local generic_secrets="${secrets_dir}/secrets.yml"
+        if [[ -f "$generic_secrets" ]]; then
+            if grep -q "YOUR_PULL_SECRET\|Add Your Pull Secret" "$generic_secrets" 2>/dev/null; then
+                local pull_tmp2
+                pull_tmp2=$(mktemp)
+                printf '%s' "${VARS[_pull_secret]}" > "$pull_tmp2"
+                yq -i ".ocp4_pull_secret = load_str(\"${pull_tmp2}\")" "$generic_secrets"
+                rm -f "$pull_tmp2"
+                ok "Fixed pull secret in generic secrets.yml"
+            fi
+        fi
     fi
 }
 
