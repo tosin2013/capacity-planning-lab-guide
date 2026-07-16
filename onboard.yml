@@ -131,8 +131,9 @@ config:
       default: "3"
 
     - key: owner_email
-      prompt: "Owner email (AWS resource tag)"
+      prompt: "Owner email (used for AWS tags and Let's Encrypt certificates)"
       default: ""
+      required: true
 
     - key: hub_guid
       prompt: "Hub cluster GUID"
