@@ -61,16 +61,18 @@ if [[ ! -x "${AGD_DIR}/bin/agd" ]]; then
 fi
 
 # ── Build list of targets ─────────────────────────────────────
+# Each entry is "guid:config_name"
 TARGETS=()
 
 if [[ "$HUB_ONLY" != true ]]; then
   for (( i=1; i<=NUM_STUDENTS; i++ )); do
-    TARGETS+=("student-$(printf '%02d' "$i")")
+    SLOT="$(printf '%02d' "$i")"
+    TARGETS+=("student-${SLOT}:student-${SLOT}")
   done
 fi
 
 if [[ "$STUDENTS_ONLY" != true ]]; then
-  TARGETS+=("${HUB_GUID}")
+  TARGETS+=("${HUB_GUID}:hub-aws")
 fi
 
 # ── Display plan ──────────────────────────────────────────────
@@ -85,16 +87,18 @@ echo "  Students:   ${NUM_STUDENTS}"
 echo "  AgnosticD:  ${AGD_DIR}"
 echo ""
 echo "  Will destroy (in order):"
-for T in "${TARGETS[@]}"; do
-  echo "    - ${T}"
+for ENTRY in "${TARGETS[@]}"; do
+  echo "    - ${ENTRY%%:*}"
 done
 echo ""
 
 if [[ "$DRY_RUN" == true ]]; then
   echo "[DRY-RUN] Commands that would run:"
   echo ""
-  for T in "${TARGETS[@]}"; do
-    echo "  cd ${AGD_DIR} && bin/agd destroy --guid ${T} --account ${ACCOUNT}"
+  for ENTRY in "${TARGETS[@]}"; do
+    local_guid="${ENTRY%%:*}"
+    local_config="${ENTRY##*:}"
+    echo "  cd ${AGD_DIR} && bin/agd destroy --guid ${local_guid} --config ${local_config} --account ${ACCOUNT}"
   done
   echo ""
   exit 0
@@ -115,9 +119,11 @@ fi
 # ── Destroy ───────────────────────────────────────────────────
 FAILED=()
 
-for T in "${TARGETS[@]}"; do
-  echo "[$(date '+%Y-%m-%d %H:%M:%S UTC')] Destroying ${T}..."
-  if (cd "${AGD_DIR}" && bin/agd destroy --guid "${T}" --account "${ACCOUNT}"); then
+for ENTRY in "${TARGETS[@]}"; do
+  T="${ENTRY%%:*}"
+  CFG="${ENTRY##*:}"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S UTC')] Destroying ${T} (config: ${CFG})..."
+  if (cd "${AGD_DIR}" && bin/agd destroy --guid "${T}" --config "${CFG}" --account "${ACCOUNT}"); then
     echo "[$(date '+%Y-%m-%d %H:%M:%S UTC')] ${T}: destroyed OK"
   else
     echo "[$(date '+%Y-%m-%d %H:%M:%S UTC')] ${T}: destroy FAILED (exit $?)"
