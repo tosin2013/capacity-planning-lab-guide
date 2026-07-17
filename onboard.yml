@@ -104,6 +104,10 @@ setup_steps:
     check: "test -d ${agnosticd_root}/../agnosticd-v2-vars"
     action: "cd ${agnosticd_root} && ./bin/agd setup"
 
+  - name: "Install workshop workload role"
+    check: "test -d ${agnosticd_root}/ansible/roles_ocp_workloads/ocp4_workload_capacity_planning_workshop"
+    action: "cd ${agnosticd_root} && git remote add fork https://github.com/tosin2013/agnosticd-v2.git 2>/dev/null || true && git fetch fork workload/capacity-planning-workshop && git checkout fork/workload/capacity-planning-workshop -- ansible/roles_ocp_workloads/ocp4_workload_capacity_planning_workshop && ln -sfn ../roles_ocp_workloads/ocp4_workload_capacity_planning_workshop ansible/roles/ocp4_workload_capacity_planning_workshop"
+
   - name: "Bootstrap hub var file"
     check: "test -f ${agnosticd_root}/../agnosticd-v2-vars/hub-aws.yml"
     action: "cp deploy/vars/hub-aws.yml ${agnosticd_root}/../agnosticd-v2-vars/hub-aws.yml"
