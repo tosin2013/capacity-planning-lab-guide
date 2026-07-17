@@ -268,7 +268,8 @@ post_setup:
        student-info.txt
 
     5. Teardown when finished:
-       cd ${agnosticd_root} && bin/agd destroy --guid ${hub_guid} --account ${account}
+       make destroy
+       # Or preview: bash scripts/teardown-workshop.sh --dry-run
 
     Full reference: docs/hub-student-deployment.md
 

@@ -19,8 +19,23 @@ concurrency:
   cancel-in-progress: false                                                                                                                                                                                                              
                                                           
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: find scripts/ -name '*.sh' -exec shellcheck --severity=error {} +
+
+      - name: yamllint
+        run: |
+          pip install yamllint
+          yamllint -d '{extends: relaxed, rules: {line-length: disable}}' onboard.yml deploy/vars/
+
   build:
     runs-on: ubuntu-latest
+    needs: lint
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4                                                                                                                                                                                                        

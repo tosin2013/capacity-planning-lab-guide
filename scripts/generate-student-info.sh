@@ -19,13 +19,26 @@
 
 set -euo pipefail
 
-# ── Configurable defaults ───────────────────────────────────
-HUB_GUID="${HUB_GUID:-hub-capacity}"
-SANDBOX="${SANDBOX:-sandbox3967}"
-STUDENT_GUIDS="${STUDENT_GUIDS:-student-01 student-02 student-03}"
-OUTPUT_DIR_ROOT="${OUTPUT_DIR_ROOT:-${HOME}/agnosticd-v2-output}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CONFIG="${REPO_ROOT}/deploy/config.yml"
+
+# ── Load from deploy/config.yml if available, env vars override ──
+_cfg_get() { grep "^${1}:" "$CONFIG" 2>/dev/null | awk '{print $2}'; }
+
+if [[ -f "${CONFIG}" ]]; then
+  _HUB_GUID=$(_cfg_get hub_guid)
+  _ACCOUNT=$(_cfg_get account)
+  _NUM=$(_cfg_get num_students)
+  _STUDENT_GUIDS=$(printf 'student-%02d ' $(seq 1 "${_NUM:-3}") | sed 's/ $//')
+else
+  _HUB_GUID=""; _ACCOUNT=""; _STUDENT_GUIDS=""
+fi
+
+HUB_GUID="${HUB_GUID:-${_HUB_GUID:-hub-capacity}}"
+SANDBOX="${SANDBOX:-${_ACCOUNT:-sandbox3967}}"
+STUDENT_GUIDS="${STUDENT_GUIDS:-${_STUDENT_GUIDS:-student-01 student-02 student-03}}"
+OUTPUT_DIR_ROOT="${OUTPUT_DIR_ROOT:-${HOME}/agnosticd-v2-output}"
 OUT_FILE="${REPO_ROOT}/student-info.txt"
 HUB_KC="${OUTPUT_DIR_ROOT}/${HUB_GUID}/openshift-cluster_${HUB_GUID}_kubeconfig"
 

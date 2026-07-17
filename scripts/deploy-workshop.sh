@@ -38,18 +38,26 @@
 set -euo pipefail
 
 # ── Defaults ─────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+_cfg="${REPO_ROOT}/deploy/config.yml"
+_cfg_get() { grep "^${1}:" "$_cfg" 2>/dev/null | awk '{print $2}' || true; }
+
+ACCOUNT="${ACCOUNT:-$(_cfg_get account)}"
 ACCOUNT="${ACCOUNT:-sandbox1139}"
+HUB_GUID="${HUB_GUID:-$(_cfg_get hub_guid)}"
 HUB_GUID="${HUB_GUID:-hub-capacity}"
-STUDENT_SLOTS="${STUDENT_SLOTS:-01 02 03 04 05}"
+_num="${NUM_STUDENTS:-$(_cfg_get num_students)}"
+STUDENT_SLOTS="${STUDENT_SLOTS:-$(printf '%02d ' $(seq 1 "${_num:-5}") | sed 's/ $//')}"
 SKIP_HUB=false
 SKIP_SHOWROOM=false
 DRY_RUN=false
 
-AGD_DIR="${HOME}/agnosticd-v2"
+_agd_root="$(_cfg_get agnosticd_root)"
+AGD_DIR="${AGD_DIR:-${_agd_root:-${HOME}/agnosticd-v2}}"
+AGD_DIR="${AGD_DIR/#\~/$HOME}"
 OUTPUT_ROOT="${HOME}/agnosticd-v2-output"
 MAIN_LOG="/tmp/deploy-workshop.log"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # ── Helpers ───────────────────────────────────────────────────
 log() {

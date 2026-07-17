@@ -42,6 +42,12 @@ Get up and running in 5 minutes. For the full operator runbook, see [Hub-Student
    cat student-info.txt
    ```
 
+6. **Tear down when finished** (destroys students first, then hub):
+
+   ```bash
+   make destroy
+   ```
+
 ---
 
 ## For Maintainers (Local Content Development)
@@ -84,6 +90,18 @@ Get up and running in 5 minutes. For the full operator runbook, see [Hub-Student
 | Grafana shows "No data" for students | Run `bash scripts/fix-grafana-rbac.sh` or `bash scripts/provision-grafana-student-access.sh` |
 | Pull secret invalid | Re-download from https://console.redhat.com/openshift/install/pull-secret |
 | `agd` not found | Re-run `make setup` or manually clone AgnosticD v2 |
+| OCP installer version mismatch | Var files pin OCP 4.21 — edit `deploy/vars/hub-aws.yml` and `deploy/vars/student.yml` (`host_ocp4_installer_version`) to change |
+
+---
+
+## Pinned Versions
+
+The var files ship with these defaults. Change them in `deploy/vars/hub-aws.yml` before deploying if you need a different version:
+
+| Component | Version | Var file location |
+|-----------|---------|-------------------|
+| OpenShift | 4.21 | `deploy/vars/hub-aws.yml` line 58, `deploy/vars/student.yml` line 58 |
+| RHACM | release-2.16 | `deploy/vars/hub-aws.yml` line 101 (`..._rhacm_channel`) |
 
 ---
 

@@ -6,7 +6,7 @@ HUB_GUID    ?= $(shell grep '^hub_guid:' deploy/config.yml 2>/dev/null | awk '{p
 NUM_STUDENTS ?= $(shell grep '^num_students:' deploy/config.yml 2>/dev/null | awk '{print $$2}')
 STUDENTS    ?= $(shell printf '%02d ' $$(seq 1 $(or $(NUM_STUDENTS),3)) | sed 's/ $$//')
 
-.PHONY: help setup setup-dev check setup-dry deploy dry-run destroy build serve stop clean student-info validate
+.PHONY: help setup setup-dev check setup-dry deploy dry-run destroy status build serve stop clean student-info validate
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -45,6 +45,9 @@ request-quotas-dry: ## Preview quota requests without submitting
 
 destroy: ## Tear down all clusters (students first, then hub)
 	bash scripts/teardown-workshop.sh
+
+status: ## Show current cluster provisioning status
+	bash scripts/cluster-status.sh
 
 build: ## Build Antora site locally (requires podman)
 	./utilities/lab-build

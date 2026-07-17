@@ -168,6 +168,17 @@ aws service-quotas request-service-quota-increase \
 | Virtualenv | activated at `~/agnosticd-v2-virtualenv` | `ls ~/agnosticd-v2-virtualenv/bin` |
 | AWS credentials | RHDP email or own account keys | `~/.aws/credentials` |
 
+### Pinned platform versions
+
+The var files (`deploy/vars/hub-aws.yml`, `deploy/vars/student.yml`) ship with:
+
+| Component | Channel / Version | Where to change |
+|-----------|-------------------|-----------------|
+| OpenShift | 4.21 | `host_ocp4_installer_version` in both hub and student var files |
+| RHACM | release-2.16 | `ocp4_workload_capacity_planning_workshop_rhacm_channel` in `hub-aws.yml` |
+
+Edit these values before deploying if your environment requires a different version.
+
 > **Important — use the fork, not upstream agnosticd-v2.** The `ocp4_workload_capacity_planning_workshop` Ansible role is in the `workload/capacity-planning-workshop` branch of [tosin2013/agnosticd-v2](https://github.com/tosin2013/agnosticd-v2/tree/workload/capacity-planning-workshop). It is not (yet) in the upstream agnosticd/agnosticd-v2 repo. Without it, provisioning fails at the "Install workloads" step.
 
 ```bash

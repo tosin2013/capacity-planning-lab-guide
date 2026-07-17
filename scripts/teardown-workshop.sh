@@ -49,6 +49,8 @@ HUB_GUID=$(grep '^hub_guid:' "$CONFIG" | awk '{print $2}')
 NUM_STUDENTS=$(grep '^num_students:' "$CONFIG" | awk '{print $2}')
 AGD_DIR=$(grep '^agnosticd_root:' "$CONFIG" | awk '{print $2}')
 AGD_DIR="${AGD_DIR/#\~/$HOME}"
+OUTPUT_DIR="${HOME}/agnosticd-v2-output"
+TEARDOWN_LOG="/tmp/teardown-workshop.log"
 
 if [[ -z "$ACCOUNT" || -z "$HUB_GUID" || -z "$NUM_STUDENTS" ]]; then
   echo "ERROR: Could not read required values from ${CONFIG}"
@@ -59,6 +61,15 @@ if [[ ! -x "${AGD_DIR}/bin/agd" ]]; then
   echo "ERROR: agd not found at ${AGD_DIR}/bin/agd"
   exit 1
 fi
+
+# ── Logging helper ────────────────────────────────────────────
+log() {
+  local msg="[$(date '+%Y-%m-%d %H:%M:%S UTC')] $*"
+  echo "${msg}"
+  echo "${msg}" >> "${TEARDOWN_LOG}"
+}
+
+: > "${TEARDOWN_LOG}"
 
 # ── Build list of targets ─────────────────────────────────────
 # Each entry is "guid:config_name"
@@ -118,15 +129,24 @@ fi
 
 # ── Destroy ───────────────────────────────────────────────────
 FAILED=()
+SKIPPED=()
 
 for ENTRY in "${TARGETS[@]}"; do
   T="${ENTRY%%:*}"
   CFG="${ENTRY##*:}"
-  echo "[$(date '+%Y-%m-%d %H:%M:%S UTC')] Destroying ${T} (config: ${CFG})..."
-  if (cd "${AGD_DIR}" && bin/agd destroy --guid "${T}" --config "${CFG}" --account "${ACCOUNT}"); then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S UTC')] ${T}: destroyed OK"
+
+  if [[ ! -d "${OUTPUT_DIR}/${T}" ]]; then
+    log "${T}: no output directory found, skipping (never provisioned?)"
+    SKIPPED+=("${T}")
+    echo ""
+    continue
+  fi
+
+  log "Destroying ${T} (config: ${CFG})..."
+  if (cd "${AGD_DIR}" && bin/agd destroy --guid "${T}" --config "${CFG}" --account "${ACCOUNT}" 2>&1 | tee -a "${TEARDOWN_LOG}"); then
+    log "${T}: destroyed OK"
   else
-    echo "[$(date '+%Y-%m-%d %H:%M:%S UTC')] ${T}: destroy FAILED (exit $?)"
+    log "${T}: destroy FAILED (exit $?)"
     FAILED+=("${T}")
   fi
   echo ""
@@ -134,11 +154,15 @@ done
 
 # ── Summary ───────────────────────────────────────────────────
 echo "============================================"
+if [[ ${#SKIPPED[@]} -gt 0 ]]; then
+  echo "  Skipped (not provisioned): ${SKIPPED[*]}"
+fi
 if [[ ${#FAILED[@]} -eq 0 ]]; then
   echo "  All clusters destroyed successfully."
 else
   echo "  FAILED to destroy: ${FAILED[*]}"
   echo "  Check AWS console for orphaned resources."
-  exit 1
 fi
+echo "  Log: ${TEARDOWN_LOG}"
 echo "============================================"
+[[ ${#FAILED[@]} -eq 0 ]]
